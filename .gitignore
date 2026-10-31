@@ -1,0 +1,4 @@
+.cache/
+.autosave/
+__pycache__/
+*.pyc

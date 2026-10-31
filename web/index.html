@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SS14 Shuttle Mapper</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand">⛭ Shuttle Mapper</div>
+    <div class="menu">
+      <button data-act="new" title="Новый шаттл">Новый</button>
+      <button data-act="open" title="Открыть карту из репозитория (Ctrl+O)">Открыть</button>
+      <button data-act="save" title="Сохранить (Ctrl+S)">Сохранить</button>
+      <button data-act="saveas" title="Сохранить как…">Сохранить как</button>
+      <span class="sep"></span>
+      <button data-act="undo" title="Отменить (Ctrl+Z)">↶</button>
+      <button data-act="redo" title="Повторить (Ctrl+Y)">↷</button>
+      <span class="sep"></span>
+      <div class="seg" id="modeSeg" title="Режим редактора">
+        <button data-mode="normal" class="on">Обычный</button>
+        <button data-mode="wiring">⚡ Проводка</button>
+        <button data-mode="atmos">◎ Атмос</button>
+      </div>
+      <span class="sep"></span>
+      <div class="seg" title="Зеркалирование (кисти рисуют симметрично)">
+        <button data-act="mirrorX" id="btnMirrorX" title="Зеркало по X (вертикальная ось)">⇋ X</button>
+        <button data-act="mirrorY" id="btnMirrorY" title="Зеркало по Y (горизонтальная ось)">⇵ Y</button>
+        <button data-act="mirrorCfg" title="Настройка осей">⚙</button>
+      </div>
+      <span class="sep"></span>
+      <button data-act="export" title="Экспорт запечённого PNG">Экспорт PNG</button>
+      <button data-act="downloadYml" title="Скачать YML без записи в репозиторий">YML</button>
+      <span class="sep"></span>
+      <button data-act="validate" title="Проверка шаттла">Проверка</button>
+      <button data-act="findReplace" title="Поиск и замена (Ctrl+H)">Замена</button>
+      <button data-act="vessel" title="Прототип вессела для Shipyard">Вессел</button>
+      <button data-act="help" title="Горячие клавиши (F1)">?</button>
+    </div>
+    <div id="docTitle"></div>
+  </header>
+
+  <nav id="toolbar"></nav>
+
+  <main id="stage">
+    <canvas id="rulerTop"></canvas>
+    <canvas id="rulerLeft"></canvas>
+    <div id="rulerCorner" title="Линейки: тяните с линейки, чтобы создать направляющую">⌗</div>
+    <canvas id="view" tabindex="0"></canvas>
+    <div id="toolOptions"></div>
+    <div id="toast"></div>
+    <div id="loading">Загрузка прототипов…</div>
+  </main>
+
+  <aside id="side">
+    <div class="tabs" id="sideTabs">
+      <button data-tab="palette" class="on">Палитра</button>
+      <button data-tab="inspector">Инспектор</button>
+      <button data-tab="layers">Слои</button>
+      <button data-tab="random">Рандом</button>
+      <button data-tab="prefabs">Префабы</button>
+      <button data-tab="stats">Сводка</button>
+    </div>
+    <section id="tab-palette" class="tab on">
+      <div class="seg full" id="palKind">
+        <button data-kind="tile" class="on">Тайлы</button>
+        <button data-kind="entity">Прототипы</button>
+        <button data-kind="decal">Декали</button>
+      </div>
+      <div class="row">
+        <input id="palSearch" type="search" placeholder="Поиск (id / имя / рус.)">
+      </div>
+      <div class="row">
+        <select id="palCat"></select>
+        <label class="chk"><input type="checkbox" id="palHidden"> скрытые</label>
+      </div>
+      <div id="palRecent" class="pal-grid small"></div>
+      <div id="palGrid" class="pal-grid"></div>
+      <div id="palInfo" class="muted"></div>
+    </section>
+    <section id="tab-inspector" class="tab"></section>
+    <section id="tab-layers" class="tab"></section>
+    <section id="tab-random" class="tab"></section>
+    <section id="tab-prefabs" class="tab"></section>
+    <section id="tab-stats" class="tab"></section>
+  </aside>
+
+  <footer id="status">
+    <span id="stCursor">—</span>
+    <span id="stSel"></span>
+    <span id="stZoom"></span>
+    <span id="stCounts"></span>
+    <span id="stMsg"></span>
+  </footer>
+</div>
+
+<div id="modal" class="hidden"><div class="modal-box"><div class="modal-head"><span id="modalTitle"></span><button id="modalClose">✕</button></div><div id="modalBody"></div></div></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

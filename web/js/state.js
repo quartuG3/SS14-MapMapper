@@ -1,0 +1,69 @@
+// Global editor state and a tiny event bus.
+export const S = {
+  model: null,
+  mode: 'normal',                 // normal | wiring | atmos
+  view: { cx: 0, cy: 0, z: 32 },  // world center, pixels per tile
+  layers: {
+    tiles: true, decals: true, walls: true, objects: true, subfloor: true, pipes: true, wires: true,
+    markers: true, grid: true, chunks: false, leaks: false, openEnds: true, placeholders: true, links: false, realSubfloor: false,
+  },
+  pipeLayers: { Primary: true, Secondary: true, Tertiary: true },
+  mirror: { x: false, y: false, ax: 0.5, ay: 0.5 },
+  guides: [],                     // {axis:'x'|'y', v}
+  selection: new Set(),
+  sel: { tile: 'Plating', entity: 'WallReinforced', decal: null },
+  palKind: 'tile',
+  rotSteps: 0,
+  brush: 1,
+  tool: 'tile',
+  hoverTile: null,
+  hoverWorld: null,
+  highlight: null,
+  inspected: null,
+  markers: [],
+  leaks: new Set(),
+  clipboard: null,
+  pipe: { layer: 'Primary', color: '#0055CCFF' },
+  wire: { kind: 'LV' },
+  decal: { color: '#FFFFFFFF', snap: true, angle: 0, z: 0, cleanable: false },
+  tileOpts: { randomVariant: true },
+  entOpts: { replace: true, free: false, step: 'center', allowDup: false, underlay: true, underlayTile: 'Plating', replaceStructs: false },
+  fillOpts: { stopAtWalls: true, mode: 'tile' },
+  eraseOpts: { tiles: true, ents: true, decals: true, top: false },
+  selFilter: { tiles: true, ents: true, decals: true },
+  random: { sets: [], active: 0, seed: 1337, fixedSeed: false, density: 25, target: 'brush' },
+  recent: { tile: [], entity: [], decal: [] },
+  savePath: null,
+  subfloor: { grates: 'Lattice|Grat|Grid|Catwalk|TechMaint|Mesh', showOnGrates: true },
+};
+
+const handlers = {};
+export function on(ev, fn) { (handlers[ev] ||= []).push(fn); }
+export function emit(ev, ...a) { for (const fn of handlers[ev] || []) fn(...a); }
+
+const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel'];
+export function loadPrefs() {
+  try {
+    const j = JSON.parse(localStorage.getItem('ss14mapper.prefs') || '{}');
+    for (const k of PERSIST) if (j[k]) Object.assign(S[k], j[k]);
+    if (j.random) { S.random.sets = j.random.sets || []; S.random.seed = j.random.seed ?? 1337; S.random.density = j.random.density ?? 25; }
+  } catch { /* ignore */ }
+}
+export function savePrefs() {
+  try {
+    const j = {};
+    for (const k of PERSIST) j[k] = S[k];
+    j.random = { sets: S.random.sets, seed: S.random.seed, density: S.random.density };
+    localStorage.setItem('ss14mapper.prefs', JSON.stringify(j));
+  } catch { /* ignore */ }
+}
+
+export function toast(msg, kind = '', ms = 3500) {
+  const box = document.getElementById('toast');
+  const d = document.createElement('div');
+  d.className = kind;
+  d.textContent = msg;
+  box.appendChild(d);
+  setTimeout(() => d.remove(), ms);
+  document.getElementById('stMsg').textContent = msg;
+}
