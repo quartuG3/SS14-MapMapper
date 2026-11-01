@@ -1,10 +1,11 @@
 // Automated smoke test, run with ?selftest=1. Drives tools with synthetic pointer events.
 import { S } from './state.js';
-import { setTool, setMode, startPaste } from './tools.js';
+import { setTool, setMode, startPaste, rotateBrushTile } from './tools.js';
 import { w2s, bake } from './view.js';
 import * as UI from './ui.js';
 import { validate, stats, findReplace } from './features.js';
-import { key, openPipeEnds, cableNetwork, exposedTiles, pipeDirsOf } from './logic.js';
+import { key, openPipeEnds, cableNetwork, exposedTiles, pipeDirsOf, rotateTileVal, mirrorTileVal } from './logic.js';
+import { P } from './protos.js';
 import { ent as protoOf } from './protos.js';
 
 const log = [];
@@ -111,6 +112,27 @@ export async function run() {
       const th = [...m.ents.values()].filter(e => e.proto === 'ThrusterLarge').map(e => `${e.x},${e.y}`).sort();
       ok('mirror multi-tile footprint', th.join(' ') === '-4.5,8.5 4.5,8.5', th.join(' '));
       setTool('tile');
+    }
+    // shaped tiles rotate / mirror by their vertex geometry
+    if (P.tiles.get('LatticeWedgeN')?.verts && P.tiles.has('LatticeHalfTiltNESLower')) {
+      const rot = (id, k) => rotateTileVal([id, 0, 0, 0], k)[0];
+      ok('shaped tile rotate wedge', rot('LatticeWedgeN', 1) === 'LatticeWedgeW' && rot('LatticeWedgeN', 2) === 'LatticeWedgeS', rot('LatticeWedgeN', 1));
+      ok('shaped tile rotate half-tilt', rot('LatticeHalfTiltNESLower', 1) === 'LatticeHalfTiltNWELower' && rot('LatticeHalfTiltNESLower', 4) === 'LatticeHalfTiltNESLower', rot('LatticeHalfTiltNESLower', 1));
+      ok('shaped tile rotate half', rot('LatticeHalfV', 1) === 'LatticeHalfH', rot('LatticeHalfV', 1));
+      setTool('tile'); S.sel.tile = 'LatticeWedgeN';
+      rotateBrushTile(1);
+      ok('brush R shaped tile', S.sel.tile === 'LatticeWedgeW', S.sel.tile);
+      rotateBrushTile(3);
+      ok('brush Shift+R shaped tile', S.sel.tile === 'LatticeWedgeN', S.sel.tile);
+      const rmTile = [...P.tiles.values()].find(t => t.rotmir && !t.space);
+      if (rmTile) {
+        S.sel.tile = rmTile.id; S.tileOpts.rm = 0;
+        rotateBrushTile(1);
+        click(-6, 10);
+        ok('brush R rotmir tile', S.tileOpts.rm === 1 && m.getTile(-6, 10)?.[3] === 1, `${rmTile.id} rm=${S.tileOpts.rm} tile=${JSON.stringify(m.getTile(-6, 10))}`);
+        S.tileOpts.rm = 0;
+      }
+      ok('shaped tile mirror w/o preset', mirrorTileVal(['LatticeHalfTiltNESLower', 0, 0, 0], 'x')[0] === 'LatticeHalfTiltNWSLower');
     }
     // drag the mirror axis by its ruler handle
     {

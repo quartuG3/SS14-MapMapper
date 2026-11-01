@@ -3,7 +3,7 @@ import { S, on, emit, toast, loadPrefs, savePrefs } from './state.js';
 import { loadProtos, P } from './protos.js';
 import { Model } from './model.js';
 import { initView, requestDraw, s2w, w2s, zoomAt, fitToContent, size } from './view.js';
-import { TOOLS, setTool, setMode, startPaste, pickAt, paste } from './tools.js';
+import { TOOLS, setTool, setMode, startPaste, pickAt, paste, rotateBrushTile } from './tools.js';
 import * as UI from './ui.js';
 import { key, unkey, tileOf } from './logic.js';
 import { activePreset } from './symmetry.js';
@@ -315,6 +315,7 @@ function bindKeys() {
     if (code === 'Digit2') { setMode('wiring'); return; }
     if (code === 'Digit3') { setMode('atmos'); return; }
     if (code === 'KeyR') {
+      if (S.tool === 'tile' || (S.tool === 'fill' && S.fillOpts.mode === 'tile')) { rotateBrushTile(ev.shiftKey ? 3 : 1); UI.renderToolOptions(); return; }
       if (S.tool === 'decal') S.decal.angle = (S.decal.angle + (ev.shiftKey ? -1 : 1) * Math.PI / 2) % (2 * Math.PI);
       else S.rotSteps = (S.rotSteps + (ev.shiftKey ? 3 : 1)) % 4;
       UI.renderToolOptions(); requestDraw(); return;

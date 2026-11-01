@@ -83,6 +83,14 @@ export function renderToolOptions() {
     add(h('label', {}, 'Кисть', h('input', { type: 'range', min: 1, max: 9, value: S.brush, oninput: e => { S.brush = +e.target.value; e.target.nextSibling.textContent = S.brush; requestDraw(); } }), String(S.brush)));
   }
   if (opts.includes('variant')) add(chk('случайный вариант', S.tileOpts, 'randomVariant'));
+  if (opts.includes('tileRot') && S.sel.tile) {
+    const tp = P.tiles.get(S.sel.tile);
+    const label = tp && tp.rotmir ? ['0°', '90°', '180°', '270°'][(S.tileOpts.rm || 0) % 4] + ((S.tileOpts.rm || 0) >= 4 ? ' отр.' : '') : S.sel.tile;
+    add(h('span', { title: 'Фигурные тайлы (клинья, углы, HalfTilt) переключаются на тайл другой ориентации, тайлы с allowRotationMirror поворачиваются' }, 'Поворот тайла:'),
+      h('button', { onclick: () => { TL.rotateBrushTile(3); renderToolOptions(); }, title: 'Shift+R' }, '↻'),
+      h('b', {}, label),
+      h('button', { onclick: () => { TL.rotateBrushTile(1); renderToolOptions(); }, title: 'R' }, '↺'));
+  }
   if (opts.includes('rot')) {
     add(h('span', {}, 'Поворот: '),
       h('button', { onclick: () => { S.rotSteps = (S.rotSteps + 3) % 4; renderToolOptions(); requestDraw(); }, title: 'Shift+R' }, '↻'),
@@ -359,6 +367,7 @@ function selectedId(kind) { return S.sel[kind]; }
 function selectItem(kind, id, ev) {
   if (ev && (ev.ctrlKey || ev.metaKey)) { toggleInSet(kind, id); return; }
   S.sel[kind] = id;
+  if (kind === 'tile') S.tileOpts.rm = 0;
   savePrefs();
   const tool = kind === 'tile' ? 'tile' : kind === 'decal' ? 'decal' : 'entity';
   if (!['fill', 'random', 'select', 'wand'].includes(S.tool) || kind !== S.palKind) setTool(tool);

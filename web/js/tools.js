@@ -1,5 +1,5 @@
 // Editor tools. Each tool receives pointer info {wx, wy, tx, ty, ev, button}.
-import { S, emit, toast } from './state.js';
+import { S, emit, toast, savePrefs } from './state.js';
 import { P, ent as protoOf } from './protos.js';
 import * as A from './assets.js';
 import * as O from './ops.js';
@@ -7,7 +7,7 @@ import { w2s, requestDraw, setToolOverlay } from './view.js';
 import * as L from './links.js';
 import {
   key, unkey, tileOf, line4, lpath, rotSteps, stepsToRot, normAngle, HALF_PI, cableNetwork, pipeNetwork,
-  pipeLayerOf, entLayer,
+  pipeLayerOf, entLayer, rotateTileVal,
 } from './logic.js';
 
 const M = () => S.model;
@@ -51,13 +51,34 @@ function ghostSprite(c, proto, x, y, rot, alpha = 0.55) {
   c.drawImage(img.img, sx - img.ox * sc, sy - img.oy * sc, img.img.width * sc, img.img.height * sc);
   c.globalAlpha = 1;
 }
-function ghostTile(c, name, x, y, alpha = 0.6) {
+function ghostTile(c, name, x, y, alpha = 0.6, rm = 0) {
   const img = A.tile(name, 0);
   const z = S.view.z;
   const [sx, sy] = w2s(x, y + 1);
   c.globalAlpha = alpha;
-  if (img) c.drawImage(img.img, sx, sy, z, z); else { c.fillStyle = '#556'; c.fillRect(sx, sy, z, z); }
+  if (!img) { c.fillStyle = '#556'; c.fillRect(sx, sy, z, z); }
+  else if (rm) {
+    c.save();
+    c.translate(sx + z / 2, sy + z / 2);
+    c.rotate(-(rm % 4) * HALF_PI);
+    if (rm >= 4) c.scale(-1, 1);
+    c.drawImage(img.img, -z / 2, -z / 2, z, z);
+    c.restore();
+  } else c.drawImage(img.img, sx, sy, z, z);
   c.globalAlpha = 1;
+}
+
+/** R / Shift+R in the tile brush: shaped tiles switch to the rotated prototype, rotmir tiles change rotation. */
+export function rotateBrushTile(k) {
+  if (!S.sel.tile) return;
+  const rm = P.tiles.get(S.sel.tile)?.rotmir ? S.tileOpts.rm || 0 : 0;
+  const v = rotateTileVal([S.sel.tile, 0, 0, rm], k);
+  if (v[0] === S.sel.tile && (v[3] || 0) === rm) { toast(`У тайла ${S.sel.tile} нет других поворотов`); return; }
+  S.tileOpts.rm = v[3] || 0;
+  if (v[0] !== S.sel.tile) { S.sel.tile = v[0]; emit('pick', 'tile'); }
+  savePrefs();
+  emit('tileRot');
+  requestDraw();
 }
 
 export function drawClipGhost(c, clip, ox, oy) {
@@ -227,7 +248,7 @@ tool({
 let tileDrag = null;
 tool({
   id: 'tile', icon: '▦', hotkey: 'b', title: 'Кисть тайлов (B): ЛКМ — рисовать, ПКМ — стереть, Shift — линия от прошлой точки, Ctrl+тянуть — прямоугольник. [ ] — размер',
-  options: ['brush', 'variant'],
+  options: ['brush', 'variant', 'tileRot'],
   down(i) {
     const name = S.sel.tile;
     const erase = i.button === 2;
@@ -241,7 +262,7 @@ tool({
     if (!erase) remember('tile', name);
   },
   stamp(x, y, erase) {
-    for (const [cx, cy] of brushCells(x, y, S.brush)) O.paintTile(cx, cy, erase ? null : O.tileValue(S.sel.tile));
+    for (const [cx, cy] of brushCells(x, y, S.brush)) O.paintTile(cx, cy, erase ? null : O.brushTileValue());
   },
   move(i) {
     if (!tileDrag) return;
@@ -254,7 +275,7 @@ tool({
     if (!tileDrag) return;
     if (tileDrag.rect) {
       M().begin('Прямоугольник тайлов');
-      for (const [x, y] of rectCells(tileDrag.start, tileDrag.cur)) O.paintTile(x, y, tileDrag.erase ? null : O.tileValue(S.sel.tile));
+      for (const [x, y] of rectCells(tileDrag.start, tileDrag.cur)) O.paintTile(x, y, tileDrag.erase ? null : O.brushTileValue());
     }
     M().commit();
     tileDrag = null;
@@ -263,8 +284,8 @@ tool({
     if (tileDrag && tileDrag.rect) drawRectOverlay(c, tileDrag.start, tileDrag.cur);
     else if (S.hoverTile && S.sel.tile && !tileDrag) {
       for (const t of O.tileTargets(...S.hoverTile)) {
-        const name = O.xformTile([S.sel.tile, 0, 0, 0], t)[0];
-        for (const [x, y] of brushCells(t.x, t.y, S.brush)) ghostTile(c, name, x, y, 0.45);
+        const v = O.xformTile(O.brushTileValue(), t);
+        for (const [x, y] of brushCells(t.x, t.y, S.brush)) ghostTile(c, v[0], x, y, 0.45, v[3] || 0);
       }
     }
   },
@@ -387,7 +408,7 @@ export function fillCells(cells, erase = false) {
   M().begin('Заливка');
   for (const k of cells) {
     const [x, y] = unkey(k);
-    if (kind === 'tile') O.paintTile(x, y, erase ? null : O.tileValue(S.sel.tile), false);
+    if (kind === 'tile') O.paintTile(x, y, erase ? null : O.brushTileValue(), false);
     else if (kind === 'entity' && S.sel.entity) erase ? O.removeEntsAt(x, y, false, e => e.proto === S.sel.entity) : O.placeEnt({ proto: S.sel.entity, x: x + 0.5, y: y + 0.5, rot: stepsToRot(S.rotSteps), mirror: false });
     else if (kind === 'decal' && S.sel.decal) erase ? O.removeDecalsAt(x, y, false) : O.placeDecal({ id: S.sel.decal, color: S.decal.color, angle: S.decal.angle, z: S.decal.z, cleanable: S.decal.cleanable, x, y }, false);
   }
@@ -435,6 +456,7 @@ export function pickAt(tx, ty, ev) {
     setTool('entity');
   } else if (t) {
     S.sel.tile = t[0];
+    S.tileOpts.rm = t[3] || 0;
     emit('pick', 'tile');
     setTool('tile');
   }

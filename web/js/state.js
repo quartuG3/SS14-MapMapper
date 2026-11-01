@@ -28,7 +28,7 @@ export const S = {
   pipe: { layer: 'Primary', color: '#0055CCFF' },
   wire: { kind: 'LV' },
   decal: { color: '#FFFFFFFF', snap: true, angle: 0, z: 0, cleanable: false },
-  tileOpts: { randomVariant: true },
+  tileOpts: { randomVariant: true, rm: 0 },  // rm: rotation of the brush tile for rotmir tiles (R)
   entOpts: { replace: true, free: false, step: 'center', allowDup: false, underlay: true, underlayTile: 'Plating', replaceStructs: false },
   fillOpts: { stopAtWalls: true, mode: 'tile' },
   eraseOpts: { tiles: true, ents: true, decals: true, top: false },

@@ -53,11 +53,13 @@ export function atmosComps(protoId) {
 }
 
 // ---------------------------------------------------------------- tiles
-export function tileValue(name, rnd = Math.random) {
+export function tileValue(name, rnd = Math.random, rm = 0) {
   const t = P.tiles.get(name);
   const variant = t && t.variants > 1 && S.tileOpts.randomVariant ? Math.floor(rnd() * t.variants) : 0;
-  return [name, 0, variant, 0];
+  return [name, 0, variant, t && t.rotmir ? rm : 0];
 }
+/** Value of the tile brush: selected tile with its R rotation. */
+export const brushTileValue = () => tileValue(S.sel.tile, Math.random, S.tileOpts.rm || 0);
 export function paintTile(x, y, val, mirror = true) {
   for (const t of tileTargets(x, y, mirror)) M().setTile(t.x, t.y, val ? xformTile(val, t) : null);
 }

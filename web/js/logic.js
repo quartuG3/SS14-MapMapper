@@ -110,6 +110,28 @@ export function mirrorEntity(protoId, rot, axis) {
   return { proto: protoId, rot: normAngle(generic) };
 }
 
+// ---------------------------------------------------------------- shaped tiles (by vertex geometry)
+// Wedges, corners, half-tilts and the like are separate tile prototypes per orientation. Their counterpart
+// after a rotation / mirror is the tile of the same family whose polygon matches the transformed one.
+let shapeIndex = null;
+const shapeKey = (fam, verts) => fam + '|' + verts.map(([x, y]) => `${+x.toFixed(3)},${+y.toFixed(3)}`).sort().join(';');
+function shapeTileFor(id, fn) {
+  const t = P.tiles.get(id);
+  if (!t || !t.verts) return null;
+  if (!shapeIndex) {
+    shapeIndex = new Map();
+    // debug duplicates last, so a real tile wins when two share one shape
+    const tiles = [...P.tiles.values()].filter(x => x.verts).sort((a, b) => /debug/i.test(a.id) - /debug/i.test(b.id));
+    for (const x of tiles) { const k = shapeKey(x.fam, x.verts); if (!shapeIndex.has(k)) shapeIndex.set(k, x.id); }
+  }
+  return shapeIndex.get(shapeKey(t.fam, t.verts.map(fn))) || null;
+}
+const SHAPE_FN = {
+  x: ([x, y]) => [1 - x, y],
+  y: ([x, y]) => [x, 1 - y],
+  ccw: ([x, y]) => [1 - y, x],   // 90° CCW around the tile centre
+};
+
 function flipRotmir(rm, axis) {
   const r = rm % 4;
   return (axis === 'x' ? r : (r + 2) % 4) + (rm >= 4 ? 0 : 4);
@@ -138,7 +160,8 @@ export function mirrorTileVal(val, axis) {
     const rm = !t || !t.rotmir ? 0 : o.rot === null ? flipRotmir(val[3] || 0, axis) : o.rot;
     return [o.id, val[1], t && val[2] >= (t.variants || 1) ? 0 : val[2], rm];
   }
-  const m = mirrorId('tile', val[0], axis);
+  const shaped = shapeTileFor(val[0], SHAPE_FN[axis]);
+  const m = shaped ? { id: shaped } : mirrorId('tile', val[0], axis);
   const t = P.tiles.get(m.id);
   let rm = val[3] || 0;
   if (t && t.rotmir) rm = flipRotmir(rm, axis);
@@ -147,6 +170,13 @@ export function mirrorTileVal(val, axis) {
 export function rotateTileVal(val, k) {
   const t = P.tiles.get(val[0]);
   if (!t || !t.rotmir) {
+    if (t && t.verts) {
+      let id = val[0];
+      for (let i = 0; i < ((k % 4) + 4) % 4; i++) id = shapeTileFor(id, SHAPE_FN.ccw) || id;
+      return [id, val[1], val[2], val[3]];
+    }
+    // 180° is a mirror along both axes, so symmetry presets apply to it
+    if (((k % 4) + 4) % 4 === 2) return mirrorTileVal(mirrorTileVal(val, 'x'), 'y');
     // rotate corner tiles by name: NE -> NW -> SW -> SE (CCW)
     const ring = ['NE', 'NW', 'SW', 'SE'];
     for (let i = 0; i < 4; i++) {
