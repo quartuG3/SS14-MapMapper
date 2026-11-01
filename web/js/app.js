@@ -6,6 +6,7 @@ import { initView, requestDraw, s2w, w2s, zoomAt, fitToContent, size } from './v
 import { TOOLS, setTool, setMode, startPaste, pickAt, paste } from './tools.js';
 import * as UI from './ui.js';
 import { key, unkey, tileOf } from './logic.js';
+import { activePreset } from './symmetry.js';
 
 const $ = id => document.getElementById(id);
 const api = UI.api;
@@ -196,10 +197,14 @@ function bindCanvas() {
     zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
 
-  // rulers -> guides
+  // rulers -> guides; the purple marker on a ruler drags the mirror axis
   for (const [id, axis] of [['rulerTop', 'y'], ['rulerLeft', 'x']]) {
+    const mAxis = axis === 'y' ? 'x' : 'y';
+    const along = e => { const r = cv.getBoundingClientRect(); return mAxis === 'x' ? e.clientX - r.left : e.clientY - r.top; };
+    $(id).addEventListener('pointermove', ev => { $(id).style.cursor = mirrorHandleAt(mAxis, along(ev)) ? (mAxis === 'x' ? 'ew-resize' : 'ns-resize') : ''; });
     $(id).addEventListener('pointerdown', ev => {
       ev.preventDefault();
+      if (S.model && ev.button === 0 && mirrorHandleAt(mAxis, along(ev))) { dragMirrorAxis(mAxis); return; }
       const g = { axis, v: 0 };
       S.guides.push(g);
       const move = e => {
@@ -226,6 +231,33 @@ function bindCanvas() {
     toast('Направляющие удалены');
     requestDraw();
   });
+}
+
+function mirrorHandleAt(axis, p) {
+  if (!S.mirror[axis]) return false;
+  const q = axis === 'x' ? w2s(S.mirror.ax, 0)[0] : w2s(0, S.mirror.ay)[1];
+  return Math.abs(p - q) <= 8;
+}
+function dragMirrorAxis(axis) {
+  const cv = $('view');
+  S.mirrorDrag = axis;
+  const move = e => {
+    const r = cv.getBoundingClientRect();
+    const [wx, wy] = s2w(e.clientX - r.left, e.clientY - r.top);
+    const v = Math.round((axis === 'x' ? wx : wy) * 2) / 2;
+    if (axis === 'x') S.mirror.ax = v; else S.mirror.ay = v;
+    $('stMsg').textContent = `Ось ${axis.toUpperCase()}: ${axis} = ${v}`;
+    requestDraw();
+  };
+  const fin = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', fin);
+    S.mirrorDrag = null;
+    emit('mirror');
+    requestDraw();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', fin);
 }
 
 function isTyping(ev) {
@@ -324,7 +356,14 @@ function bindMenu() {
   }));
   document.querySelectorAll('#modeSeg button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
   on('mode', m => document.querySelectorAll('#modeSeg button').forEach(b => b.classList.toggle('on', b.dataset.mode === m)));
-  on('mirror', () => { $('btnMirrorX').classList.toggle('on', S.mirror.x); $('btnMirrorY').classList.toggle('on', S.mirror.y); });
+  on('mirror', () => {
+    $('btnMirrorX').classList.toggle('on', S.mirror.x);
+    $('btnMirrorY').classList.toggle('on', S.mirror.y);
+    const p = activePreset();
+    $('btnMirrorCfg').textContent = p ? '⚙•' : '⚙';
+    $('btnMirrorCfg').title = 'Настройка симметрии: оси и пресеты отражений' + (p ? `
+Активный пресет: ${p.name}` : '');
+  });
 }
 function autoAxis() {
   const b = S.model.bounds();
@@ -368,6 +407,7 @@ async function main() {
   bindCanvas();
   bindKeys();
   bindMenu();
+  emit('mirror');
   try {
     await loadProtos();
   } catch (e) {

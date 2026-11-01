@@ -117,3 +117,15 @@ table.kv td:first-child { color: var(--muted); width: 40%; }
 .chips label.on { background: #1f3f66; border-color: var(--acc); }
 .chips input { display: none; }
 #tab-inspector > *, #tab-layers > *, #tab-random > *, #tab-prefabs > *, #tab-stats > * { flex-shrink: 0; }
+.symgrid { position: relative; display: grid; grid-template-columns: repeat(2, 170px); gap: 10px; width: max-content; margin: 6px 0 2px 22px; }
+.symgrid::before, .symgrid::after { content: ""; position: absolute; background: var(--acc2); pointer-events: none; }
+.symgrid::before { left: 50%; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; }
+.symgrid::after { top: 50%; left: -4px; right: -4px; height: 2px; margin-top: -1px; }
+.symcell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; background: var(--bg3); border: 2px solid transparent; border-radius: 4px; min-width: 0; }
+.symcell.orig { border-color: #000; box-shadow: 0 0 0 1px #555 inset; }
+.symimg { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #10121a; border: 1px solid var(--line); border-radius: 3px; }
+.symimg:hover { border-color: var(--acc); }
+.symimg img { max-width: 44px; max-height: 44px; image-rendering: pixelated; }
+.symid { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.symcell select { font-size: 11px; padding: 0 2px; max-width: 100%; }
+.symgrp:not(.on) .symgrid { opacity: .45; }

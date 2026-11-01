@@ -1,6 +1,7 @@
 // Panels, palette, tool options and dialogs.
 import { S, on, emit, toast, savePrefs } from './state.js';
-import { P, search, displayName, ent as protoOf } from './protos.js';
+import { P, search, displayName, ent as protoOf, mirrorId } from './protos.js';
+import { newGroup, symToFile, symFromFile, randomToFile, randomFromFile } from './symmetry.js';
 import * as A from './assets.js';
 import * as O from './ops.js';
 import { TOOLS, TOOL_ORDER, setTool, setMode, startPaste, fillCells } from './tools.js';
@@ -827,7 +828,7 @@ export function renderLayers() {
   for (const [i, g] of S.guides.entries()) gl.append(h('div', { class: 'row' }, `${g.axis === 'x' ? 'Вертикаль x' : 'Горизонталь y'} = ${g.v}`, h('button', { onclick: () => { S.guides.splice(i, 1); renderLayers(); requestDraw(); } }, '✕')));
   if (!S.guides.length) gl.append(h('div', { class: 'muted' }, 'Тяните с линейки на холст, чтобы создать направляющую.'));
   else gl.append(h('button', { onclick: () => { S.guides.length = 0; renderLayers(); requestDraw(); } }, 'Удалить все направляющие'));
-  gl.append(h('div', { class: 'muted' }, 'Голубая линия — направляющая: тащите её мышью, ПКМ по ней или перенос на линейку — удалить, клик по ⌗ в углу — удалить все. Фиолетовый пунктир — ось зеркала (кнопки ⇋ X / ⇵ Y).'));
+  gl.append(h('div', { class: 'muted' }, 'Голубая линия — направляющая: тащите её мышью, ПКМ по ней или перенос на линейку — удалить, клик по ⌗ в углу — удалить все. Фиолетовый пунктир — ось зеркала (кнопки ⇋ X / ⇵ Y): её двигают за фиолетовый маркер на линейке.'));
   box.append(gl);
 }
 export function refreshLeaks() { if (M()) { S.leaks = leakTiles(M()); requestDraw(); } }
@@ -843,8 +844,13 @@ export function renderRandom() {
     h('label', {}, 'Плотность', h('input', { type: 'number', min: 1, max: 100, value: R.density, onchange: e => { R.density = Math.max(1, Math.min(100, +e.target.value)); savePrefs(); } }), '%')));
   box.append(h('div', { class: 'row' },
     h('button', { onclick: () => newSet('tile') }, '+ тайлы'), h('button', { onclick: () => newSet('entity') }, '+ прототипы'), h('button', { onclick: () => newSet('decal') }, '+ декали'),
-    h('button', { onclick: addPresets, title: 'Создать готовые наборы из прототипов репозитория' }, 'Пресеты')));
-  box.append(h('p', { class: 'muted' }, 'Ctrl+клик в палитре добавляет элемент в активный набор. Кисть 🎲 (N) рисует набором, в выделении — «Рассыпать».'));
+    h('button', { onclick: addPresets, title: 'Создать готовые наборы из прототипов репозитория' }, 'Встроенные')));
+  box.append(h('div', { class: 'row' },
+    h('button', { disabled: !R.sets.length, title: 'Скачать все наборы одним пресетом .json в «Загрузки»', onclick: () => downloadJson(randomToFile('Наборы', R.sets), fileName('random-sets')) }, '⬇ В загрузки'),
+    h('button', { title: 'Добавить наборы из .json файла', onclick: async () => { for (const f of await pickJsonFiles()) addRandomSets(f.data); } }, '⬆ Из файла'),
+    h('button', { disabled: !R.sets.length, title: 'Сохранить все наборы в папку presets/random/ маппера', onclick: () => { const n = prompt('Имя пресета', 'Наборы'); if (n) saveToCatalog('random', n, randomToFile(n, R.sets)); } }, '💾 В каталог'),
+    h('button', { title: 'Пресеты из папки presets/random/ маппера', onclick: randomCatalogDialog }, '📂 Каталог')));
+  box.append(h('p', { class: 'muted' }, 'Ctrl+клик в палитре добавляет элемент в активный набор. Кисть 🎲 (N) рисует набором, в выделении — «Рассыпать». Загруженные пресеты добавляются к текущим наборам.'));
   R.sets.forEach((set, i) => {
     const items = h('div', { class: 'items' });
     for (const it of set.items) {
@@ -858,6 +864,7 @@ export function renderRandom() {
         h('input', { type: 'radio', name: 'rset', checked: i === R.active, onchange: () => { R.active = i; renderRandom(); renderToolOptions(); } }),
         h('input', { class: 'grow', value: set.name, onchange: e => { set.name = e.target.value; savePrefs(); } }),
         h('span', { class: 'muted' }, ({ tile: 'тайлы', entity: 'прото', decal: 'декали' })[set.kind]),
+        h('button', { title: 'Скачать этот набор .json в «Загрузки»', onclick: () => downloadJson(randomToFile(set.name, [set]), fileName(set.name)) }, '⬇'),
         h('button', { class: 'danger', onclick: () => { R.sets.splice(i, 1); R.active = 0; savePrefs(); renderRandom(); } }, '✕')),
       h('div', { class: 'row' },
         set.kind !== 'tile' ? chk('случ. поворот', set, 'randRot') : null,
@@ -865,6 +872,21 @@ export function renderRandom() {
         set.kind === 'decal' ? h('input', { type: 'color', value: (set.color || '#FFFFFF').slice(0, 7), onchange: e => { set.color = e.target.value.toUpperCase() + 'FF'; savePrefs(); } }) : null),
       items));
   });
+}
+function addRandomSets(data) {
+  try {
+    const sets = randomFromFile(data);
+    if (!sets.length) { toast('В пресете нет наборов', 'err'); return; }
+    S.random.sets.push(...sets);
+    S.random.active = S.random.sets.length - sets.length;
+    savePrefs(); renderRandom(); renderToolOptions();
+    toast(`Добавлено наборов: ${sets.length}`, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+function randomCatalogDialog() {
+  modal('Пресеты рандома (presets/random/)', h('div', {},
+    h('p', { class: 'muted' }, 'Наборы из пресета добавляются к текущим.'),
+    catalogList('random', d => `${((d && d.sets) || []).length} наборов`, d => { addRandomSets(d); closeModal(); })));
 }
 function newSet(kind) {
   S.random.sets.push({ name: `Набор ${S.random.sets.length + 1}`, kind, items: [], randRot: kind !== 'tile', jitter: false, color: '#FFFFFFFF' });
@@ -1056,19 +1078,202 @@ export function exportDialog() {
   doPreview();
 }
 
-export function mirrorDialog() {
-  const ax = h('input', { type: 'number', step: 0.5, value: S.mirror.ax });
-  const ay = h('input', { type: 'number', step: 0.5, value: S.mirror.ay });
-  const body = h('div', {},
-    h('p', { class: 'muted' }, 'Ось X — вертикальная линия x = значение (целое — граница тайлов, .5 — центр тайла). Ось Y — горизонтальная линия. При включённой оси любые кисти, трубы, кабели, вставка и прототипы зеркалируются (с корректными поворотами, Left↔Right, NE↔NW и т.п.).'),
-    h('div', { class: 'row' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: S.mirror.x, onchange: e => S.mirror.x = e.target.checked }), 'Ось X'), 'x =', ax),
-    h('div', { class: 'row' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: S.mirror.y, onchange: e => S.mirror.y = e.target.checked }), 'Ось Y'), 'y =', ay),
+// ===================================================================== preset files (Downloads / browser / presets/ catalog)
+function downloadJson(obj, name) {
+  const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' })), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function pickJsonFiles() {
+  return new Promise(resolve => {
+    const inp = h('input', { type: 'file', accept: '.json,application/json', multiple: true, style: 'display:none' });
+    inp.onchange = async () => {
+      const out = [];
+      for (const f of inp.files) {
+        try { out.push({ name: f.name.replace(/\.json$/i, ''), data: JSON.parse(await f.text()) }); } catch (e) { toast(`${f.name}: ${e.message}`, 'err'); }
+      }
+      inp.remove();
+      resolve(out);
+    };
+    document.body.append(inp);
+    inp.click();
+  });
+}
+const fileName = s => (String(s || 'preset').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'preset') + '.json';
+async function saveToCatalog(kind, name, data) {
+  try {
+    const list = await api.get('/api/presets?kind=' + kind);
+    if (list.some(p => p.file.toLowerCase() === name.toLowerCase() || (p.data && p.data.name === name)) && !confirm(`Пресет «${name}» уже есть в каталоге. Перезаписать?`)) return;
+    const r = await api.post('/api/preset', { kind, name, data });
+    toast(`Сохранено: presets/${kind}/${r.file}.json`, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+/** List of presets from presets/<kind>/ with load/delete buttons. */
+function catalogList(kind, describe, onLoad) {
+  const box = h('div', { class: 'list' }, h('div', { class: 'li muted' }, 'Загрузка…'));
+  const fill = async () => {
+    let list = [];
+    try { list = await api.get('/api/presets?kind=' + kind); } catch (e) { box.innerHTML = ''; box.append(h('div', { class: 'li' }, e.message)); return; }
+    box.innerHTML = '';
+    for (const p of list) {
+      box.append(h('div', { class: 'li' },
+        h('span', {}, p.data ? (p.data.name || p.file) : p.file, h('span', { class: 'muted' }, '  ' + (p.error ? 'ошибка: ' + p.error : `${p.file}.json · ${describe(p.data)}`))),
+        h('span', { class: 'row', style: 'margin:0;flex-wrap:nowrap' },
+          h('button', { disabled: !p.data, onclick: () => onLoad(p.data, p.file) }, 'Загрузить'),
+          h('button', { class: 'danger', title: 'Удалить файл из каталога', onclick: async () => { if (confirm(`Удалить presets/${kind}/${p.file}.json?`)) { await api.post('/api/preset/delete', { kind, name: p.file }); fill(); } } }, '✕'))));
+    }
+    if (!list.length) box.append(h('div', { class: 'li muted' }, `Каталог presets/${kind}/ пуст`));
+  };
+  fill();
+  return box;
+}
+
+// ===================================================================== symmetry
+const KIND_NAMES = { tile: 'тайлы', entity: 'прототипы', decal: 'декали' };
+const CELL_NAMES = ['Исходный', 'Отражение по X (⇋)', 'Отражение по Y (⇵)', 'По X и Y'];
+const kindUrl = (kind, id) => kind === 'tile' ? A.tileUrl(id) : kind === 'decal' ? A.decalUrl(id) : A.iconUrl(id);
+
+/** Floating search list to choose a tile / prototype / decal id. */
+function idPicker(anchor, kind, initial, onPick) {
+  document.querySelector('.id-picker')?.remove();
+  const q = h('input', { type: 'search', class: 'grow', placeholder: 'Поиск (id / имя / рус.)', value: initial || '' });
+  const list = h('div', { class: 'pal-grid', style: 'max-height:300px;overflow-y:auto' });
+  const box = h('div', { class: 'stack-menu id-picker', style: 'padding:6px;width:360px' },
+    h('div', { class: 'row' }, q, h('button', { onclick: () => { onPick(null); close(); } }, 'Очистить')), list);
+  const outside = e => { if (!box.contains(e.target)) close(); };
+  function close() { box.remove(); document.removeEventListener('pointerdown', outside, true); }
+  const render = () => {
+    list.innerHTML = '';
+    for (const p of search(kind, q.value, { limit: 150, hidden: true })) {
+      list.append(h('div', { class: 'pi', title: displayName(kind, p.id), onclick: () => { onPick(p.id); close(); } },
+        h('img', { src: kindUrl(kind, p.id), loading: 'lazy' }), h('span', { class: 'lbl' }, p.id)));
+    }
+  };
+  q.oninput = render;
+  q.onkeydown = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.body.append(box);
+  const r = anchor.getBoundingClientRect();
+  box.style.left = Math.max(4, Math.min(r.left, innerWidth - 370)) + 'px';
+  box.style.top = Math.max(4, Math.min(r.bottom + 4, innerHeight - 360)) + 'px';
+  setTimeout(() => document.addEventListener('pointerdown', outside, true));
+  render();
+  q.focus();
+  q.select();
+}
+
+function rotOptions(kind) {
+  const deg = ['0°', '90°', '180°', '270°'];
+  const opts = [['', 'поворот: авто']];
+  deg.forEach((d, i) => opts.push([String(i), d]));
+  if (kind === 'tile') deg.forEach((d, i) => opts.push([String(i + 4), 'отр. ' + d]));
+  return opts;
+}
+function cellTransform(kind, rot) {
+  if (rot === null || rot === undefined) return '';
+  return `transform: rotate(${-90 * (rot % 4)}deg)${kind === 'tile' && rot >= 4 ? ' scaleX(-1)' : ''}`;
+}
+function autoFillGroup(g) {
+  const base = g.cells.findIndex(Boolean);
+  if (base < 0) return;
+  for (let i = 0; i < 4; i++) {
+    if (g.cells[i]) continue;
+    let id = g.cells[base].id;
+    if ((i ^ base) & 1) id = mirrorId(g.kind, id, 'x').id;
+    if ((i ^ base) & 2) id = mirrorId(g.kind, id, 'y').id;
+    g.cells[i] = { id, rot: null };
+  }
+}
+
+/** One group: 2×2 cells split by the purple axes; the black-framed cell is the original. */
+function symGroupCard(g, changed, rerender, remove) {
+  const grid = h('div', { class: 'symgrid' });
+  g.cells.forEach((c, i) => {
+    const img = c ? h('img', { src: kindUrl(g.kind, c.id), style: cellTransform(g.kind, c.rot) }) : h('span', { class: 'muted' }, '+');
+    const rot = h('select', { disabled: !c, title: 'Поворот клетки. «Авто» совпадает с любым поворотом, он пересчитывается как обычно', onchange: e => { c.rot = e.target.value === '' ? null : +e.target.value; changed(); rerender(); } },
+      ...rotOptions(g.kind).map(([v, t]) => h('option', { value: v, selected: String(c && c.rot !== null && c.rot !== undefined ? c.rot : '') === v }, t)));
+    const pick = h('div', { class: 'symimg', title: `${CELL_NAMES[i]}: ${c ? displayName(g.kind, c.id) : 'не задан (встроенные правила)'}. Клик — выбрать` }, img);
+    pick.onclick = () => idPicker(pick, g.kind, c ? c.id : (g.cells.find(Boolean) || {}).id, id => {
+      g.cells[i] = id ? { id, rot: c ? c.rot : null } : null;
+      if (id && (!g.name || g.name === 'Группа')) g.name = id;
+      changed(); rerender();
+    });
+    grid.append(h('div', { class: 'symcell' + (i === 0 ? ' orig' : '') }, pick, h('div', { class: 'symid', title: c ? c.id : '' }, c ? c.id : CELL_NAMES[i]), rot));
+  });
+  return h('div', { class: 'set symgrp' + (g.on ? ' on' : '') },
     h('div', { class: 'row' },
-      h('button', { onclick: () => { const b = M().bounds(); if (b) { ax.value = (b.minx + b.maxx + 1) / 2; ay.value = (b.miny + b.maxy + 1) / 2; } } }, 'По центру грида'),
-      h('button', { onclick: () => { if (S.selection.size) { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const k of S.selection) { const [x, y] = unkey(k); a = Math.min(a, x); b = Math.max(b, x + 1); c = Math.min(c, y); d = Math.max(d, y + 1); } ax.value = (a + b) / 2; ay.value = (c + d) / 2; } } }, 'По центру выделения'),
-      h('button', { onclick: () => { if (S.hoverTile) { ax.value = S.hoverTile[0] + 0.5; ay.value = S.hoverTile[1] + 0.5; } } }, 'По тайлу под курсором')),
-    h('div', { class: 'row' }, h('button', { class: 'on', onclick: () => { S.mirror.ax = +ax.value; S.mirror.ay = +ay.value; closeModal(); emit('mirror'); requestDraw(); } }, 'Применить')));
-  modal('Оси зеркалирования', body);
+      h('input', { type: 'checkbox', checked: g.on, title: 'Группа включена', onchange: e => { g.on = e.target.checked; changed(); rerender(); } }),
+      h('input', { class: 'grow', value: g.name, onchange: e => { g.name = e.target.value; changed(); } }),
+      h('span', { class: 'muted' }, KIND_NAMES[g.kind]),
+      h('button', { title: 'Заполнить пустые клетки встроенными правилами (NE↔NW, Left↔Right…)', onclick: () => { autoFillGroup(g); changed(); rerender(); } }, 'Авто'),
+      h('button', { class: 'danger', onclick: remove }, '✕')),
+    grid);
+}
+
+export function mirrorDialog() {
+  const Y = S.symmetry;
+  const body = h('div', {});
+  let showCatalog = false;
+  const changed = () => { savePrefs(); emit('mirror'); };
+  const axisInput = k => h('input', { type: 'number', step: 0.5, value: S.mirror[k], onchange: e => { S.mirror[k] = +e.target.value; changed(); requestDraw(); } });
+  const setAxes = (x, y) => { S.mirror.ax = x; S.mirror.ay = y; changed(); requestDraw(); render(); };
+  const addPreset = p => {
+    const i = Y.presets.findIndex(q => q.name === p.name);
+    if (i >= 0 && confirm(`Пресет «${p.name}» уже есть. Заменить его? (Отмена — добавить копию)`)) { Y.presets[i] = p; Y.active = i; }
+    else { Y.presets.push(p); Y.active = Y.presets.length - 1; }
+    changed(); render();
+  };
+  function render() {
+    const scroll = $('modalBody').scrollTop;
+    body.innerHTML = '';
+    const P0 = Y.active >= 0 ? Y.presets[Y.active] : null;
+    body.append(
+      h('h4', {}, 'Оси'),
+      h('p', { class: 'muted' }, 'Ось X — вертикальная линия x = значение (целое — граница тайлов, .5 — центр тайла), ось Y — горизонтальная. Ось можно перетащить за фиолетовый маркер на линейке. При включённой оси кисти, трубы, кабели, вставка и прототипы зеркалируются (повороты, Left↔Right, NE↔NW и т.п.).'),
+      h('div', { class: 'row' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: S.mirror.x, onchange: e => { S.mirror.x = e.target.checked; changed(); requestDraw(); } }), 'Ось X'), 'x =', axisInput('ax')),
+      h('div', { class: 'row' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: S.mirror.y, onchange: e => { S.mirror.y = e.target.checked; changed(); requestDraw(); } }), 'Ось Y'), 'y =', axisInput('ay')),
+      h('div', { class: 'row' },
+        h('button', { onclick: () => { const b = M().bounds(); if (b) setAxes((b.minx + b.maxx + 1) / 2, (b.miny + b.maxy + 1) / 2); } }, 'По центру грида'),
+        h('button', { onclick: () => { if (S.selection.size) { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const k of S.selection) { const [x, y] = unkey(k); a = Math.min(a, x); b = Math.max(b, x + 1); c = Math.min(c, y); d = Math.max(d, y + 1); } setAxes((a + b) / 2, (c + d) / 2); } } }, 'По центру выделения'),
+        h('button', { onclick: () => { if (S.hoverTile) setAxes(S.hoverTile[0] + 0.5, S.hoverTile[1] + 0.5); } }, 'По тайлу под курсором')),
+      h('h4', {}, 'Пресет отражений'),
+      h('p', { class: 'muted' }, 'Пресет задаёт явные зеркальные пары для тайлов, прототипов и декалей, которые встроенные правила не узнают (например LatticeHalfTilt…Lower). В группе чёрная рамка — исходный элемент, фиолетовые линии — оси, остальные клетки — его отражения по X, по Y и по обеим осям. Пока группа включена, любой её элемент при зеркалировании заменяется на соответствующую клетку.'),
+      h('div', { class: 'row' },
+        h('select', { class: 'grow', onchange: e => { Y.active = +e.target.value; changed(); render(); } },
+          h('option', { value: -1, selected: Y.active < 0 }, '— нет (только встроенные правила) —'),
+          ...Y.presets.map((p, i) => h('option', { value: i, selected: i === Y.active }, `${p.name} (${p.groups.length})`))),
+        h('button', { onclick: () => { Y.presets.push({ name: `Пресет ${Y.presets.length + 1}`, groups: [] }); Y.active = Y.presets.length - 1; changed(); render(); } }, '+ новый'),
+        h('button', { disabled: !P0, onclick: () => { Y.presets.push(symFromFile(JSON.parse(JSON.stringify(symToFile({ ...P0, name: P0.name + ' (копия)' }))))); Y.active = Y.presets.length - 1; changed(); render(); } }, 'Копия'),
+        h('button', { class: 'danger', disabled: !P0, title: 'Убрать пресет из браузера (файлы в каталоге не трогаются)', onclick: () => { if (confirm(`Убрать пресет «${P0.name}» из браузера? Файлы в каталоге не трогаются.`)) { Y.presets.splice(Y.active, 1); Y.active = -1; changed(); render(); } } }, '✕')),
+      h('div', { class: 'row' },
+        h('button', { disabled: !P0, title: 'Скачать пресет .json в «Загрузки»', onclick: () => downloadJson(symToFile(P0), fileName(P0.name)) }, '⬇ В загрузки'),
+        h('button', { title: 'Загрузить пресет из .json файла', onclick: async () => { for (const f of await pickJsonFiles()) { try { addPreset(symFromFile(f.data, f.name)); } catch (e) { toast(`${f.name}: ${e.message}`, 'err'); } } } }, '⬆ Из файла'),
+        h('button', { disabled: !P0, title: 'Сохранить в папку presets/symmetry/ маппера', onclick: () => saveToCatalog('symmetry', P0.name, symToFile(P0)) }, '💾 В каталог'),
+        h('button', { class: showCatalog ? 'on' : '', title: 'Пресеты из папки presets/symmetry/ маппера', onclick: () => { showCatalog = !showCatalog; render(); } }, '📂 Каталог')),
+      showCatalog ? catalogList('symmetry', d => `${((d && d.groups) || []).length} групп`, (d, file) => { try { addPreset(symFromFile(d, file)); toast('Пресет загружен', 'ok'); } catch (e) { toast(e.message, 'err'); } }) : '');
+    if (P0) {
+      const add = g => { P0.groups.push(g); changed(); render(); };
+      body.append(
+        h('div', { class: 'row' }, 'Имя', h('input', { class: 'grow', value: P0.name, onchange: e => { P0.name = e.target.value || 'Пресет'; changed(); render(); } })),
+        h('div', { class: 'row' },
+          h('button', { onclick: () => add(newGroup('tile')) }, '+ тайлы'),
+          h('button', { onclick: () => add(newGroup('entity')) }, '+ прототипы'),
+          h('button', { onclick: () => add(newGroup('decal')) }, '+ декали'),
+          h('button', { title: 'Группа из выбранного в палитре элемента; отражения заполняются встроенными правилами', onclick: () => {
+            const id = S.sel[S.palKind];
+            if (!id) { toast('В палитре ничего не выбрано'); return; }
+            const g = newGroup(S.palKind, id); autoFillGroup(g); add(g);
+          } }, '+ из палитры'),
+          h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: P0.groups.length > 0 && P0.groups.every(g => g.on), onchange: e => { for (const g of P0.groups) g.on = e.target.checked; changed(); render(); } }), 'включить все')));
+      const list = h('div', {});
+      for (const g of P0.groups) list.append(symGroupCard(g, changed, render, () => { P0.groups.splice(P0.groups.indexOf(g), 1); changed(); render(); }));
+      if (!P0.groups.length) list.append(h('div', { class: 'muted' }, 'Групп нет. Добавьте группу и выберите элементы кликом по клеткам.'));
+      body.append(list);
+    }
+    body.append(h('div', { class: 'row' }, h('button', { class: 'on', onclick: () => { document.querySelector('.id-picker')?.remove(); closeModal(); } }, 'Готово')));
+    $('modalBody').scrollTop = scroll;
+  }
+  modal('Настройка симметрии', body, () => document.querySelector('.id-picker')?.remove());
+  render();
 }
 
 export function validateDialog() {

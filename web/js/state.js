@@ -9,6 +9,8 @@ export const S = {
   },
   pipeLayers: { Primary: true, Secondary: true, Tertiary: true },
   mirror: { x: false, y: false, ax: 0.5, ay: 0.5 },
+  symmetry: { presets: [], active: -1 },  // see symmetry.js
+  mirrorDrag: null,               // 'x' | 'y' while an axis is dragged from a ruler
   guides: [],                     // {axis:'x'|'y', v}
   selection: new Set(),
   sel: { tile: 'Plating', entity: 'WallReinforced', decal: null },
@@ -48,6 +50,7 @@ export function loadPrefs() {
     const j = JSON.parse(localStorage.getItem('ss14mapper.prefs') || '{}');
     for (const k of PERSIST) if (j[k]) Object.assign(S[k], j[k]);
     if (j.random) { S.random.sets = j.random.sets || []; S.random.seed = j.random.seed ?? 1337; S.random.density = j.random.density ?? 25; }
+    if (j.symmetry) { S.symmetry.presets = j.symmetry.presets || []; S.symmetry.active = Math.min(j.symmetry.active ?? -1, S.symmetry.presets.length - 1); }
   } catch { /* ignore */ }
 }
 export function savePrefs() {
@@ -55,6 +58,7 @@ export function savePrefs() {
     const j = {};
     for (const k of PERSIST) j[k] = S[k];
     j.random = { sets: S.random.sets, seed: S.random.seed, density: S.random.density };
+    j.symmetry = S.symmetry;
     localStorage.setItem('ss14mapper.prefs', JSON.stringify(j));
   } catch { /* ignore */ }
 }

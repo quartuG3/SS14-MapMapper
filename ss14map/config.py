@@ -6,6 +6,7 @@ import tomllib
 TOOL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONF_PATH = os.path.join(TOOL_DIR, "conf.toml")
 CONF_EXAMPLE = os.path.join(TOOL_DIR, "conf.example.toml")
+PRESET_KINDS = ("symmetry", "random")  # subfolders of presets/
 
 
 class ConfigError(Exception):
@@ -58,7 +59,9 @@ class Config:
         self.cache_dir = os.path.join(TOOL_DIR, ".cache")
         self.autosave_dir = os.path.join(TOOL_DIR, ".autosave")
         self.prefab_dir = os.path.join(TOOL_DIR, "prefabs")
-        for d in (self.cache_dir, self.autosave_dir, self.prefab_dir):
+        self.preset_dir = os.path.join(TOOL_DIR, "presets")
+        for d in (self.cache_dir, self.autosave_dir, self.prefab_dir,
+                  *(os.path.join(self.preset_dir, k) for k in PRESET_KINDS)):
             os.makedirs(d, exist_ok=True)
 
     def res_path(self, rel):

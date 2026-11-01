@@ -302,15 +302,18 @@ function drawOverlays(c) {
     c.lineWidth = 1;
   }
   // mirror axes
+  c.font = '10px sans-serif';
   if (S.mirror.x) {
     const [sx] = w2s(S.mirror.ax, 0);
-    c.strokeStyle = 'rgba(190,110,255,0.9)'; c.setLineDash([8, 4]);
-    c.beginPath(); c.moveTo(sx, 0); c.lineTo(sx, H); c.stroke(); c.setLineDash([]);
+    c.strokeStyle = 'rgba(190,110,255,0.9)'; c.setLineDash([8, 4]); c.lineWidth = S.mirrorDrag === 'x' ? 2 : 1;
+    c.beginPath(); c.moveTo(sx, 0); c.lineTo(sx, H); c.stroke(); c.setLineDash([]); c.lineWidth = 1;
+    c.fillStyle = 'rgba(190,110,255,0.95)'; c.fillText('⇋ x=' + S.mirror.ax, sx + 4, H - 6);
   }
   if (S.mirror.y) {
     const [, sy] = w2s(0, S.mirror.ay);
-    c.strokeStyle = 'rgba(190,110,255,0.9)'; c.setLineDash([8, 4]);
-    c.beginPath(); c.moveTo(0, sy); c.lineTo(W, sy); c.stroke(); c.setLineDash([]);
+    c.strokeStyle = 'rgba(190,110,255,0.9)'; c.setLineDash([8, 4]); c.lineWidth = S.mirrorDrag === 'y' ? 2 : 1;
+    c.beginPath(); c.moveTo(0, sy); c.lineTo(W, sy); c.stroke(); c.setLineDash([]); c.lineWidth = 1;
+    c.fillStyle = 'rgba(190,110,255,0.95)'; c.fillText('⇵ y=' + S.mirror.ay, W - 60, sy - 4);
   }
   // guides
   c.strokeStyle = 'rgba(60,220,230,0.8)';
@@ -381,9 +384,16 @@ function drawRulers() {
       if (horiz) c.fillRect(p0, RULER - 4, p1 - p0, 4); else c.fillRect(RULER - 4, p0, 4, p1 - p0);
     }
     // mirror axis marker
+    // mirror axis handle (drag it along the ruler to move the axis)
     c.fillStyle = '#b06cff';
-    if (horiz && S.mirror.x) { const p = w2s(S.mirror.ax, 0)[0]; c.fillRect(p - 3, 0, 6, 6); }
-    if (!horiz && S.mirror.y) { const p = w2s(0, S.mirror.ay)[1]; c.fillRect(0, p - 3, 6, 6); }
+    if (horiz && S.mirror.x) {
+      const p = Math.round(w2s(S.mirror.ax, 0)[0]);
+      c.beginPath(); c.moveTo(p - 7, 0); c.lineTo(p + 7, 0); c.lineTo(p + 7, 8); c.lineTo(p, RULER); c.lineTo(p - 7, 8); c.closePath(); c.fill();
+    }
+    if (!horiz && S.mirror.y) {
+      const p = Math.round(w2s(0, S.mirror.ay)[1]);
+      c.beginPath(); c.moveTo(0, p - 7); c.lineTo(0, p + 7); c.lineTo(8, p + 7); c.lineTo(RULER, p); c.lineTo(8, p - 7); c.closePath(); c.fill();
+    }
   }
 }
 

@@ -8,7 +8,7 @@ import time
 
 from . import yamlio
 
-CACHE_VERSION = 8
+CACHE_VERSION = 10
 
 DRAW_DEPTH = {
     "LowFloors": -20, "ThickPipe": -19, "ThickWire": -18, "ThinPipeAlt2": -17, "ThinPipeAlt1": -16, "ThinPipe": -15, "ThinWire": -14,
@@ -282,6 +282,9 @@ class ProtoIndex:
         if sm:
             s["sm"] = {"key": _norm_name(sm.get("key")), "mode": _norm_name(sm.get("mode")) or "Corners",
                        "base": _norm_name(sm.get("base"))}
+        fp = _footprint(comps.get("Fixtures"))
+        if fp:
+            s["fp"] = fp
         cv = comps.get("CableVisualizer")
         if cv:
             prefix = _norm_name(cv.get("statePrefix"))
@@ -419,6 +422,55 @@ class ProtoIndex:
 def norm_pipe_layer(v):
     v = str(v or "Primary")
     return {"0": "Primary", "1": "Secondary", "2": "Tertiary"}.get(v, v)
+
+
+def _fnums(v):
+    try:
+        return [float(x) for x in str(v).split(",")]
+    except ValueError:
+        return []
+
+
+def _footprint(fixtures):
+    """Centre of the tiles covered by the hard fixtures, relative to the entity's own tile centre
+    (entity space, unrotated). None for one-tile entities. Multi-tile machines such as large thrusters
+    sit on one corner tile, so mirroring has to mirror this centre rather than the origin."""
+    if not isinstance(fixtures, dict) or not isinstance(fixtures.get("fixtures"), dict):
+        return None
+    xs, ys = [], []
+    for fx in fixtures["fixtures"].values():
+        if not isinstance(fx, dict) or str(fx.get("hard", "true")).lower() == "false":
+            continue
+        shape = fx.get("shape")
+        body = shape.get(yamlio.VAL) if yamlio.is_tagged(shape) else shape
+        tag = shape.get(yamlio.TAG, "") if yamlio.is_tagged(shape) else ""
+        if not isinstance(body, dict):
+            continue
+        if "Aabb" in tag or "bounds" in body:
+            b = _fnums(body.get("bounds", ""))
+            if len(b) == 4:
+                xs += [b[0], b[2]]
+                ys += [b[1], b[3]]
+        elif "vertices" in body:
+            for v in _as_list(body.get("vertices")):
+                c = _fnums(v)
+                if len(c) == 2:
+                    xs.append(c[0])
+                    ys.append(c[1])
+        elif "Circle" in tag:
+            c = _fnums(body.get("position", "0,0")) or [0.0, 0.0]
+            r = _num(body.get("radius"), 0.5)
+            if len(c) == 2:
+                xs += [c[0] - r, c[0] + r]
+                ys += [c[1] - r, c[1] + r]
+    if not xs:
+        return None
+    eps = 0.45  # a tile counts only when the fixtures cover at least ~half of it (ignores small overhangs)
+    def centre(lo, hi):
+        a, b = math.floor(lo + 0.5 + eps), math.floor(hi + 0.5 - eps)
+        return (a + b) / 2 if b >= a else 0.0
+    cx, cy = centre(min(xs), max(xs)), centre(min(ys), max(ys))
+    return [cx, cy] if cx or cy else None
 
 
 def _num(v, default=None):

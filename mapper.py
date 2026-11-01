@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ss14map import gridfile, yamlio
 from ss14map.atmos import exposed_tiles
-from ss14map.config import TOOL_DIR, Config
+from ss14map.config import PRESET_KINDS, TOOL_DIR, Config
 from ss14map.prototypes import ProtoIndex
 from ss14map.sprites import SpriteBank, png_bytes
 
@@ -121,6 +121,29 @@ def vessel_enums():
     return _enum_cache
 
 
+def preset_path(kind, name):
+    if kind not in PRESET_KINDS:
+        raise ValueError(f"unknown preset kind {kind!r}")
+    name = re.sub(r"[^\w\-а-яА-ЯёЁ ()]", "_", str(name)).strip() or "preset"
+    return os.path.join(cfg.preset_dir, kind, name + ".json")
+
+
+def list_presets(kind):
+    if kind not in PRESET_KINDS:
+        raise ValueError(f"unknown preset kind {kind!r}")
+    base = os.path.join(cfg.preset_dir, kind)
+    out = []
+    for fn in sorted(os.listdir(base), key=str.lower):
+        if not fn.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(base, fn), encoding="utf-8-sig") as f:
+                out.append({"file": fn[:-5], "data": json.load(f)})
+        except (OSError, ValueError) as e:
+            out.append({"file": fn[:-5], "error": str(e)})
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -219,6 +242,8 @@ class Handler(BaseHTTPRequestHandler):
                         with open(os.path.join(cfg.prefab_dir, fn), encoding="utf-8") as f:
                             out.append(json.load(f))
                 return self._json(out)
+            if route == "presets":
+                return self._json(list_presets(q["kind"]))
             if route == "autosave":
                 p = os.path.join(cfg.autosave_dir, "autosave.json")
                 if not os.path.exists(p):
@@ -276,6 +301,16 @@ class Handler(BaseHTTPRequestHandler):
             if route == "prefab/delete":
                 name = re.sub(r"[^\w\-а-яА-ЯёЁ ]", "_", body["name"]).strip()
                 p = os.path.join(cfg.prefab_dir, name + ".json")
+                if os.path.exists(p):
+                    os.remove(p)
+                return self._json({"ok": True})
+            if route == "preset":
+                p = preset_path(body["kind"], body["name"])
+                with open(p, "w", encoding="utf-8") as f:
+                    json.dump(body["data"], f, ensure_ascii=False, indent=1)
+                return self._json({"ok": True, "file": os.path.basename(p)[:-5]})
+            if route == "preset/delete":
+                p = preset_path(body["kind"], body["name"])
                 if os.path.exists(p):
                     os.remove(p)
                 return self._json({"ok": True})

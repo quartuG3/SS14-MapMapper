@@ -2,7 +2,7 @@
 import { S } from './state.js';
 import { P, ent as protoOf } from './protos.js';
 import {
-  key, unkey, tileOf, rotSteps, normAngle, HALF_PI, mirrorEntity, mirrorTileVal, rotateTileVal, mirrorDecal,
+  key, unkey, tileOf, rotSteps, normAngle, HALF_PI, mirrorPlacement, mirrorTileVal, rotateTileVal, mirrorDecal,
   PLAIN_PIPES, plainPipeBase, pipeLayerOf, pipeColorOf, pipeDirsOf, fitPipe, CARDINALS, DIR_VEC, OPP, mulberry32, weightedPick,
   entLayer, isStructure, isMarker, hasComp, STACKABLE_RE,
 } from './logic.js';
@@ -19,21 +19,16 @@ export function tileTargets(x, y, mirror = true) {
   const seen = new Set();
   return out.filter(t => { const k = key(t.x, t.y); if (seen.has(k)) return false; seen.add(k); return true; });
 }
-export function pointTargets(x, y, mirror = true) {
-  const out = [{ x, y, mx: false, my: false }];
-  if (mirror && S.mirror.x) out.push({ x: 2 * S.mirror.ax - x, y, mx: true, my: false });
-  if (mirror && S.mirror.y) out.push({ x, y: 2 * S.mirror.ay - y, mx: false, my: true });
-  if (mirror && S.mirror.x && S.mirror.y) out.push({ x: 2 * S.mirror.ax - x, y: 2 * S.mirror.ay - y, mx: true, my: true });
+/** Entity placements for all active mirror axes: [{proto, rot, x, y}], original first. */
+export function entTargets(proto, rot, x, y, mirror = true) {
+  const out = [{ proto, rot, x, y }];
+  if (mirror && S.mirror.x) out.push(mirrorPlacement(proto, rot, x, y, 'x', S.mirror.ax));
+  if (mirror && S.mirror.y) out.push(mirrorPlacement(proto, rot, x, y, 'y', S.mirror.ay));
+  if (mirror && S.mirror.x && S.mirror.y) { const m = out[1]; out.push(mirrorPlacement(m.proto, m.rot, m.x, m.y, 'y', S.mirror.ay)); }
   const seen = new Set();
   return out.filter(t => { const k = t.x.toFixed(3) + ',' + t.y.toFixed(3); if (seen.has(k)) return false; seen.add(k); return true; });
 }
-export function xformEnt(proto, rot, t) {
-  let r = { proto, rot };
-  if (t.mx) r = mirrorEntity(r.proto, r.rot, 'x');
-  if (t.my) r = mirrorEntity(r.proto, r.rot, 'y');
-  return r;
-}
-function xformTile(val, t) {
+export function xformTile(val, t) {
   let v = val;
   if (t.mx) v = mirrorTileVal(v, 'x');
   if (t.my) v = mirrorTileVal(v, 'y');
@@ -73,8 +68,8 @@ export function placeEnt({ proto, x, y, rot = 0, comps = [], src = null, content
   allowDup = S.entOpts.allowDup, underlay = !src && S.entOpts.underlay, replaceStructs = !src && S.entOpts.replaceStructs }) {
   const model = M();
   const placed = [];
-  for (const t of pointTargets(x, y, mirror)) {
-    const { proto: pr, rot: r } = xformEnt(proto, rot, t);
+  for (const t of entTargets(proto, rot, x, y, mirror)) {
+    const { proto: pr, rot: r } = t;
     const [tx, ty] = tileOf(t.x, t.y);
     const p = protoOf(pr);
     if (replaceStructs && isStructure(p)) {
@@ -312,12 +307,12 @@ export function transformClip(clip, { rot = 0, flipX = false, flipY = false }) {
   }
   if (flipX) {
     c.tiles = c.tiles.map(([x, y, v]) => [c.w - 1 - x, y, mirrorTileVal(v, 'x')]);
-    c.ents = c.ents.map(o => { const m = mirrorEntity(o.e.proto, o.e.rot || 0, 'x'); return { ...o, e: { ...o.e, x: c.w - o.e.x, proto: m.proto, rot: m.rot } }; });
+    c.ents = c.ents.map(o => ({ ...o, e: { ...o.e, ...mirrorPlacement(o.e.proto, o.e.rot || 0, o.e.x, o.e.y, 'x', c.w / 2) } }));
     c.decals = c.decals.map(d => mirrorDecal(d, 'x', c.w / 2, c.h / 2));
   }
   if (flipY) {
     c.tiles = c.tiles.map(([x, y, v]) => [x, c.h - 1 - y, mirrorTileVal(v, 'y')]);
-    c.ents = c.ents.map(o => { const m = mirrorEntity(o.e.proto, o.e.rot || 0, 'y'); return { ...o, e: { ...o.e, y: c.h - o.e.y, proto: m.proto, rot: m.rot } }; });
+    c.ents = c.ents.map(o => ({ ...o, e: { ...o.e, ...mirrorPlacement(o.e.proto, o.e.rot || 0, o.e.x, o.e.y, 'y', c.h / 2) } }));
     c.decals = c.decals.map(d => mirrorDecal(d, 'y', c.w / 2, c.h / 2));
   }
   return c;

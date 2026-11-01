@@ -262,7 +262,10 @@ tool({
   overlay(c) {
     if (tileDrag && tileDrag.rect) drawRectOverlay(c, tileDrag.start, tileDrag.cur);
     else if (S.hoverTile && S.sel.tile && !tileDrag) {
-      for (const t of O.tileTargets(...S.hoverTile)) for (const [x, y] of brushCells(t.x, t.y, S.brush)) ghostTile(c, S.sel.tile, x, y, 0.45);
+      for (const t of O.tileTargets(...S.hoverTile)) {
+        const name = O.xformTile([S.sel.tile, 0, 0, 0], t)[0];
+        for (const [x, y] of brushCells(t.x, t.y, S.brush)) ghostTile(c, name, x, y, 0.45);
+      }
     }
   },
 });
@@ -324,10 +327,7 @@ tool({
     if (entDrag && entDrag.rect) { drawRectOverlay(c, entDrag.start, entDrag.cur); return; }
     if (!S.hoverWorld || !S.sel.entity) return;
     const [px, py] = placePos(S.hoverWorld[0], S.hoverWorld[1], S.shiftDown);
-    for (const t of O.pointTargets(px, py)) {
-      const r = O.xformEnt(S.sel.entity, stepsToRot(S.rotSteps), t);
-      ghostSprite(c, r.proto, t.x, t.y, r.rot);
-    }
+    for (const t of O.entTargets(S.sel.entity, stepsToRot(S.rotSteps), px, py)) ghostSprite(c, t.proto, t.x, t.y, t.rot);
   },
 });
 

@@ -1,5 +1,6 @@
 // Geometry, rotation, smoothing and network logic shared by renderer and tools.
 import { P, ent as protoOf, mirrorId } from './protos.js';
+import { symOverride } from './symmetry.js';
 
 export const HALF_PI = Math.PI / 2;
 // Direction bits (same as WireVisDirFlags): N=1 S=2 E=4 W=8
@@ -91,10 +92,12 @@ export function fitPipe(mask) {
 // ---------------------------------------------------------------- mirroring / rotating entities
 /** Mirror an entity's proto + rotation along axis. Returns {proto, rot}. */
 export function mirrorEntity(protoId, rot, axis) {
+  const generic = axis === 'x' ? -rot : Math.PI - rot;
+  const o = symOverride('entity', protoId, rotSteps(rot), axis);
+  if (o) return { proto: o.id, rot: o.rot === null ? normAngle(generic) : stepsToRot(o.rot) };
   const p = protoOf(protoId);
   const m = mirrorId('entity', protoId, axis);
   if (m.dirSwap) return { proto: m.id, rot };
-  const generic = axis === 'x' ? -rot : Math.PI - rot;
   if (m.chiral) return { proto: m.id, rot: normAngle(generic) };
   if (p && p.sm && (p.sm.mode === 'Diagonal' || p.sm.mode === 'DiagonalNF')) {
     return { proto: protoId, rot: normAngle(axis === 'x' ? -rot - HALF_PI : HALF_PI - rot) };
@@ -107,17 +110,38 @@ export function mirrorEntity(protoId, rot, axis) {
   return { proto: protoId, rot: normAngle(generic) };
 }
 
+function flipRotmir(rm, axis) {
+  const r = rm % 4;
+  return (axis === 'x' ? r : (r + 2) % 4) + (rm >= 4 ? 0 : 4);
+}
+/** Offset from the origin to the centre of a multi-tile footprint (e.g. 2×2 thrusters), rotated with the entity. */
+export function footprintOffset(protoId, rot) {
+  const fp = protoOf(protoId)?.fp;
+  return fp ? rotateVec(fp[0], fp[1], rot || 0) : [0, 0];
+}
+const r6 = v => Math.round(v * 1e6) / 1e6;
+/** Mirror a placed entity across the line x = a (axis 'x') or y = a (axis 'y').
+ *  The footprint centre is mirrored, so multi-tile machines end up symmetric, not just their origin tile. */
+export function mirrorPlacement(protoId, rot, x, y, axis, a) {
+  const m = mirrorEntity(protoId, rot, axis);
+  const [ox, oy] = footprintOffset(protoId, rot), [nx, ny] = footprintOffset(m.proto, m.rot);
+  let cx = x + ox, cy = y + oy;
+  if (axis === 'x') cx = 2 * a - cx; else cy = 2 * a - cy;
+  return { proto: m.proto, rot: m.rot, x: r6(cx - nx), y: r6(cy - ny) };
+}
+
 export function mirrorTileVal(val, axis) {
   // val = [name, flags, variant, rotmir]
+  const o = symOverride('tile', val[0], val[3] || 0, axis);
+  if (o) {
+    const t = P.tiles.get(o.id);
+    const rm = !t || !t.rotmir ? 0 : o.rot === null ? flipRotmir(val[3] || 0, axis) : o.rot;
+    return [o.id, val[1], t && val[2] >= (t.variants || 1) ? 0 : val[2], rm];
+  }
   const m = mirrorId('tile', val[0], axis);
   const t = P.tiles.get(m.id);
   let rm = val[3] || 0;
-  if (t && t.rotmir) {
-    const r = rm % 4; let mir = rm >= 4;
-    mir = !mir;
-    const r2 = axis === 'x' ? r : (r + 2) % 4;
-    rm = r2 + (mir ? 4 : 0);
-  }
+  if (t && t.rotmir) rm = flipRotmir(rm, axis);
   return [m.id, val[1], val[2], rm];
 }
 export function rotateTileVal(val, k) {
@@ -138,11 +162,13 @@ export function rotateTileVal(val, k) {
 }
 
 export function mirrorDecal(d, axis, ax, ay) {
-  const m = mirrorId('decal', d.id, axis);
-  const out = { ...d, id: m.id };
   const a = d.angle || 0;
+  const o = symOverride('decal', d.id, rotSteps(a), axis);
+  const m = o ? { id: o.id, dirSwap: false } : mirrorId('decal', d.id, axis);
+  const out = { ...d, id: m.id };
   if (axis === 'x') { out.x = 2 * ax - d.x - 1; out.angle = m.dirSwap || !a ? a : normAngle(-a); }
   else { out.y = 2 * ay - d.y - 1; out.angle = m.dirSwap || !a ? a : normAngle(Math.PI - a); }
+  if (o && o.rot !== null) out.angle = stepsToRot(o.rot);
   return out;
 }
 

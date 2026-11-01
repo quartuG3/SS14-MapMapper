@@ -1,0 +1,191 @@
+{
+ "type": "ss14mapper-symmetry",
+ "version": 1,
+ "name": "Наклонные полутайлы (HalfTilt)",
+ "groups": [
+  {
+   "name": "Lattice HalfTilt NES Lower",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "LatticeHalfTiltNESLower",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltNWSLower",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSENLower",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSWNLower",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Lattice HalfTilt NES Upper",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "LatticeHalfTiltNESUpper",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltNWSUpper",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSENUpper",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSWNUpper",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Lattice HalfTilt NEW Lower",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "LatticeHalfTiltNEWLower",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltNWELower",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSEWLower",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSWELower",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Lattice HalfTilt NEW Upper",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "LatticeHalfTiltNEWUpper",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltNWEUpper",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSEWUpper",
+     "rot": null
+    },
+    {
+     "id": "LatticeHalfTiltSWEUpper",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Plating HalfTilt NES Lower",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "PlatingHalfTiltNESLower",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltNWSLower",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSENLower",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSWNLower",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Plating HalfTilt NES Upper",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "PlatingHalfTiltNESUpper",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltNWSUpper",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSENUpper",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSWNUpper",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Plating HalfTilt NEW Lower",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "PlatingHalfTiltNEWLower",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltNWELower",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSEWLower",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSWELower",
+     "rot": null
+    }
+   ]
+  },
+  {
+   "name": "Plating HalfTilt NEW Upper",
+   "kind": "tile",
+   "on": true,
+   "cells": [
+    {
+     "id": "PlatingHalfTiltNEWUpper",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltNWEUpper",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSEWUpper",
+     "rot": null
+    },
+    {
+     "id": "PlatingHalfTiltSWEUpper",
+     "rot": null
+    }
+   ]
+  }
+ ]
+}

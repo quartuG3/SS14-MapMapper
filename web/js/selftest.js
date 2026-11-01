@@ -89,6 +89,40 @@ export async function run() {
     setTool('tile'); S.sel.tile = 'FloorWood';
     click(-4, -2);
     ok('mirror tile', m.getTile(4, -2)?.[0] === 'FloorWood', m.getTile(4, -2)?.[0]);
+    // symmetry preset: explicit counterparts, both directions, disabled group falls back
+    const symGroup = { name: 't', kind: 'tile', on: true, cells: [{ id: 'FloorWood', rot: null }, { id: 'Plating', rot: null }, null, null] };
+    const symPrev = S.symmetry.active;
+    S.symmetry.presets.push({ name: 'selftest', groups: [symGroup] });
+    S.symmetry.active = S.symmetry.presets.length - 1;
+    click(-4, 0);
+    ok('symmetry preset tile', m.getTile(4, 0)?.[0] === 'Plating', m.getTile(4, 0)?.[0]);
+    S.sel.tile = 'Plating';
+    click(-4, 1);
+    ok('symmetry preset reverse', m.getTile(4, 1)?.[0] === 'FloorWood', m.getTile(4, 1)?.[0]);
+    symGroup.on = false;
+    click(-4, 2);
+    ok('symmetry group off', m.getTile(4, 2)?.[0] === 'Plating', m.getTile(4, 2)?.[0]);
+    S.symmetry.presets.pop();
+    S.symmetry.active = symPrev;
+    // multi-tile footprint: the 2×2 thruster sits on its corner tile, the mirror keeps the 2×2 block symmetric
+    if (protoOf('ThrusterLarge')?.fp) {
+      setTool('entity'); S.sel.entity = 'ThrusterLarge'; S.rotSteps = 0;
+      click(-5, 8);
+      const th = [...m.ents.values()].filter(e => e.proto === 'ThrusterLarge').map(e => `${e.x},${e.y}`).sort();
+      ok('mirror multi-tile footprint', th.join(' ') === '-4.5,8.5 4.5,8.5', th.join(' '));
+      setTool('tile');
+    }
+    // drag the mirror axis by its ruler handle
+    {
+      const rt = document.getElementById('rulerTop'), vr = document.getElementById('view').getBoundingClientRect();
+      const ry = rt.getBoundingClientRect().top + 5, guides = S.guides.length;
+      const ev = (t, wx) => new PointerEvent(t, { clientX: vr.left + w2s(wx, 0)[0], clientY: ry, button: 0, bubbles: true });
+      rt.dispatchEvent(ev('pointerdown', 0.5));
+      window.dispatchEvent(ev('pointermove', 3.2));
+      window.dispatchEvent(ev('pointerup', 3.2));
+      ok('mirror axis ruler drag', S.mirror.ax === 3 && S.guides.length === guides, `ax=${S.mirror.ax} guides=${S.guides.length}`);
+      S.mirror.ax = 0.5;
+    }
     S.mirror.x = false;
     // selection + copy/paste + transforms
     setTool('select');
