@@ -336,9 +336,25 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, f.read(), ctype)
 
 
+class Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets several processes listen on one port at once, and requests then land on
+    # a random (possibly stale) instance. Take the port exclusively so a second start fails loudly instead.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt":
+            import socket
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def main():
     sys.stdout.reconfigure(line_buffering=True)
-    srv = ThreadingHTTPServer(("127.0.0.1", cfg.port), Handler)
+    try:
+        srv = Server(("127.0.0.1", cfg.port), Handler)
+    except OSError as e:
+        raise SystemExit(f"[mapper] порт {cfg.port} занят ({e.strerror or e}). Скорее всего маппер уже запущен: "
+                         f"закройте его окно или укажите другой port в conf.toml.")
     url = f"http://localhost:{cfg.port}/"
     print(f"[mapper] repo: {cfg.repo}")
     print(f"[mapper] listening on {url}")

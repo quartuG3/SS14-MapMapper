@@ -8,7 +8,7 @@ import time
 
 from . import yamlio
 
-CACHE_VERSION = 10
+CACHE_VERSION = 11
 
 DRAW_DEPTH = {
     "LowFloors": -20, "ThickPipe": -19, "ThickWire": -18, "ThinPipeAlt2": -17, "ThinPipeAlt1": -16, "ThinPipe": -15, "ThinWire": -14,
@@ -386,6 +386,13 @@ class ProtoIndex:
             "baseTurf": _norm_name(t.get("baseTurf")),
             "rotmir": str(t.get("allowRotationMirror", "false")).lower() == "true",
         }
+        verts = [_fnums(v) for v in _as_list(t.get("vertices"))]
+        verts = [[round(v[0], 3), round(v[1], 3)] for v in verts if len(v) == 2]
+        if len(verts) >= 3:
+            # partial tile shape (wedges, corners, half-tilts): the editor rotates/mirrors these by geometry
+            s["verts"] = verts
+            parent = t.get("parent")
+            s["fam"] = _norm_name(parent[0] if isinstance(parent, list) and parent else parent) or ""
         if ru:
             s["ru"] = ru
         if tid == "Space":
