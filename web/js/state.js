@@ -34,6 +34,7 @@ export const S = {
   random: { sets: [], active: 0, seed: 1337, fixedSeed: false, density: 25, target: 'brush' },
   recent: { tile: [], entity: [], decal: [] },
   savePath: null,
+  saveOpts: { toRepo: false },     // false: download the .yml, true: write into the repo
   subfloor: { grates: 'Lattice|Grat|Grid|Catwalk|TechMaint|Mesh', showOnGrates: true },
 };
 
@@ -41,7 +42,7 @@ const handlers = {};
 export function on(ev, fn) { (handlers[ev] ||= []).push(fn); }
 export function emit(ev, ...a) { for (const fn of handlers[ev] || []) fn(...a); }
 
-const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel'];
+const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel', 'saveOpts'];
 export function loadPrefs() {
   try {
     const j = JSON.parse(localStorage.getItem('ss14mapper.prefs') || '{}');

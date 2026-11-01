@@ -988,6 +988,7 @@ export function saveDialog(doSave, asNew) {
   const regen = h('input', { type: 'checkbox', checked: isNew || !!model.doc.regenAtmos });
   const mix = h('select', {}, h('option', { value: 'air' }, 'Воздух 293K'), h('option', { value: 'freezer' }, 'Холодильник 235K'), h('option', { value: 'vacuum' }, 'Вакуум'));
   const exposed = h('input', { type: 'checkbox', checked: true });
+  const toRepo = h('input', { type: 'checkbox', checked: !!S.saveOpts.toRepo });
   const gname = h('input', { class: 'grow', value: (model.doc.gridEnt.components.find(c => c.type === 'MetaData') || {}).name || 'grid' });
   const body = h('div', {},
     h('div', { class: 'row' }, 'Путь (от Resources/):', path),
@@ -995,15 +996,19 @@ export function saveDialog(doSave, asNew) {
     h('h4', {}, 'Атмосфера'),
     h('div', { class: 'row' }, h('label', { class: 'chk' }, regen, 'Пересоздать GridAtmosphere (как fixgridatmos)'), mix),
     h('div', { class: 'row' }, h('label', { class: 'chk' }, exposed, 'Тайлы с выходом в космос — вакуум')),
-    h('p', { class: 'muted' }, 'Файл пишется прямо в репозиторий. Неизвестные компоненты и поля сохраняются без изменений.'),
+    h('h4', {}, 'Куда'),
+    h('div', { class: 'row' }, h('label', { class: 'chk' }, toRepo, 'Записать в репозиторий по этому пути (иначе файл скачивается в «Загрузки»)')),
+    h('p', { class: 'muted' }, 'Неизвестные компоненты и поля сохраняются без изменений.'),
     h('div', { class: 'row' }, h('button', { class: 'on', onclick: go }, 'Сохранить'), h('button', { onclick: () => closeModal() }, 'Отмена')));
   modal(asNew || isNew ? 'Сохранить как' : 'Сохранить', body);
   path.focus();
   async function go() {
     const md = model.doc.gridEnt.components.find(c => c.type === 'MetaData');
     if (md) md.name = gname.value;
+    S.saveOpts.toRepo = toRepo.checked;
+    savePrefs();
     closeModal();
-    await doSave(path.value.trim(), { regenAtmos: regen.checked, atmos: { mix: mix.value, exposedVacuum: exposed.checked } });
+    await doSave(path.value.trim(), { toRepo: toRepo.checked, regenAtmos: regen.checked, atmos: { mix: mix.value, exposedVacuum: exposed.checked } });
   }
 }
 

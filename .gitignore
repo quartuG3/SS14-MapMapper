@@ -2,3 +2,4 @@
 .autosave/
 __pycache__/
 *.pyc
+conf.toml

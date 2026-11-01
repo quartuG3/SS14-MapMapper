@@ -57,17 +57,37 @@ async function newMap(name) {
   setModel(doc);
 }
 
+function downloadText(text, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/yaml' }));
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 async function save(path, opts) {
   const model = S.model;
   try {
     const doc = model.toDoc();
-    const r = await api.post('/api/save', { doc, path, regenAtmos: opts.regenAtmos, atmos: opts.atmos });
+    if (!path.endsWith('.yml')) throw new Error('путь должен заканчиваться на .yml');
+    let msg;
+    if (opts.toRepo) {
+      const r = await api.post('/api/save', { doc, path, regenAtmos: opts.regenAtmos, atmos: opts.atmos });
+      msg = `Сохранено: ${r.path} (${Math.round(r.bytes / 1024)} КБ)`;
+    } else {
+      const text = await api.post('/api/save', { doc, write: false, regenAtmos: opts.regenAtmos, atmos: opts.atmos });
+      const name = path.split('/').pop();
+      downloadText(text, name);
+      msg = `Скачано: ${name} (${Math.round(text.length / 1024)} КБ)`;
+    }
     model.path = path;
     model.doc.path = path;
     model.savedVersion = model.version;
     model.doc.regenAtmos = opts.regenAtmos;
     $('docTitle').textContent = path;
-    toast(`Сохранено: ${r.path} (${Math.round(r.bytes / 1024)} КБ)`, 'ok');
+    toast(msg, 'ok');
     localStorage.setItem('ss14mapper.last', path);
     UI.updateStatus();
   } catch (e) { toast('Ошибка сохранения: ' + e.message, 'err', 8000); }
@@ -81,11 +101,7 @@ function quickSave() {
 async function downloadYml() {
   try {
     const text = await api.post('/api/save', { doc: S.model.toDoc(), write: false, regenAtmos: !!S.model.doc.regenAtmos });
-    const name = (S.model.path || 'shuttle.yml').split('/').pop();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type: 'text/yaml' }));
-    a.download = name;
-    a.click();
+    downloadText(text, (S.model.path || 'shuttle.yml').split('/').pop());
   } catch (e) { toast(e.message, 'err'); }
 }
 
