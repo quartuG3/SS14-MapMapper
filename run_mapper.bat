@@ -17,6 +17,8 @@ rem ---- packages
 if errorlevel 1 (
     choice /c YN /m "Установить пакеты из requirements.txt"
     if errorlevel 2 goto :fail
+    rem no PyYAML wheel for new Python versions: build pure Python without MSVC
+    set "PYYAML_FORCE_LIBYAML=0"
     %PY% -m pip install -r requirements.txt
     %PY% -m ss14map.check deps
     if errorlevel 1 goto :fail
