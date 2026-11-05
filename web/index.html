@@ -23,6 +23,7 @@
         <button data-mode="normal" class="on">Обычный</button>
         <button data-mode="wiring">⚡ Проводка</button>
         <button data-mode="atmos">◎ Атмос</button>
+        <button data-mode="disposal">♻ Утилизация</button>
       </div>
       <span class="sep"></span>
       <div class="seg" title="Зеркалирование (кисти рисуют симметрично)">
@@ -35,11 +36,13 @@
       <button data-act="downloadYml" title="Скачать YML без записи в репозиторий">YML</button>
       <span class="sep"></span>
       <button data-act="validate" title="Проверка шаттла">Проверка</button>
+      <button data-act="radar" title="Сканер масс: шаттл так, как его показывает радар в игре">Сканер</button>
       <button data-act="findReplace" title="Поиск и замена (Ctrl+H)">Замена</button>
       <button data-act="vessel" title="Прототип вессела для Shipyard">Вессел</button>
       <button data-act="help" title="Горячие клавиши (F1)">?</button>
     </div>
     <div id="docTitle"></div>
+    <span id="gridPick"></span>
   </header>
 
   <nav id="toolbar"></nav>
@@ -68,11 +71,13 @@
         <button data-kind="tile" class="on">Тайлы</button>
         <button data-kind="entity">Прототипы</button>
         <button data-kind="decal">Декали</button>
+        <button data-kind="custom" title="Свои палитры: Shift+клик по элементу каталога добавляет его в активную палитру">★ Свои</button>
       </div>
+      <div id="palCustomBar" style="display:none"></div>
       <div class="row">
         <input id="palSearch" type="search" placeholder="Поиск (id / имя / рус.)">
       </div>
-      <div class="row">
+      <div class="row" id="palCatRow">
         <select id="palCat"></select>
         <label class="chk"><input type="checkbox" id="palHidden"> скрытые</label>
       </div>

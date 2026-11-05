@@ -1,7 +1,7 @@
 // Validator, statistics, vessel prototype generator, find & replace.
 import { S } from './state.js';
 import { P, ent as protoOf } from './protos.js';
-import { key, unkey, tileOf, rotSteps, leakTiles, openPipeEnds, cableNetwork, entLayer, isStructure, STACKABLE_RE, ameGroups } from './logic.js';
+import { key, unkey, tileOf, rotSteps, leakTiles, openPipeEnds, openDisposalEnds, disposalsAt, dispDirsOf, cableNetwork, entLayer, isStructure, STACKABLE_RE, ameGroups } from './logic.js';
 import { orphanDevices } from './links.js';
 
 const has = (p, c) => !!(p && p.c && p.c.includes(c));
@@ -111,6 +111,20 @@ export function validate(model) {
   // pipes
   const ends = openPipeEnds(model);
   if (ends.length) add('warn', `Открытых концов труб: ${ends.length}`, [ends[0].x, ends[0].y]);
+  // disposals
+  const dEnds = openDisposalEnds(model);
+  if (dEnds.length) add('warn', `Открытых концов утилизационных труб: ${dEnds.length} — режим «Утилизация» (4) показывает их оранжевыми точками`, [dEnds[0].x, dEnds[0].y]);
+  for (const e of model.ents.values()) {
+    const p = protoOf(e.proto);
+    if (!has(p, 'DisposalUnit')) continue;
+    const [x, y] = tileOf(e.x, e.y);
+    if (!disposalsAt(model, x, y).some(t => protoOf(t.proto)?.dispKind === 'entry' && dispDirsOf(t))) add('warn', `${e.proto} без DisposalTrunk под ним (${x}, ${y})`, [x, y]);
+  }
+  for (const e of model.ents.values()) {
+    if (protoOf(e.proto)?.dispKind !== 'broken') continue;
+    const [x, y] = tileOf(e.x, e.y);
+    add('warn', `Сломанная утилизационная труба (${x}, ${y})`, [x, y]);
+  }
   // leaks
   const ex = leakTiles(model);
   S.leaks = ex;

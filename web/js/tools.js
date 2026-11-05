@@ -7,7 +7,7 @@ import { w2s, requestDraw, setToolOverlay } from './view.js';
 import * as L from './links.js';
 import {
   key, unkey, tileOf, line4, lpath, rotSteps, stepsToRot, normAngle, HALF_PI, cableNetwork, pipeNetwork,
-  pipeLayerOf, entLayer, rotateTileVal,
+  pipeLayerOf, entLayer, rotateTileVal, disposalNetwork, isDisposal,
 } from './logic.js';
 
 const M = () => S.model;
@@ -492,6 +492,53 @@ tool({
   up() { if (pipeDrag) M().commit(); pipeDrag = null; },
 });
 
+// ===================================================================== disposals
+let dispDrag = null;
+function reportDispWarnings() {
+  if (!O.dispWarnings.size) return;
+  toast(`Крестовин у утилизационных труб нет, соединение пропущено: ${[...O.dispWarnings].slice(0, 3).join(', ')}`, 'err', 5000);
+  O.dispWarnings.clear();
+}
+tool({
+  id: 'disposal', icon: '♻', hotkey: 'u', options: ['disposal', 'devices'],
+  title: 'Утилизационные трубы (U): тяните ЛКМ — прокладка с автоподбором (конец — DisposalTrunk, прямая, изгиб, развилка), ПКМ — удалить; Shift — L-путь от прошлой точки. Над развилкой: R / Shift+R — выход, T — тип (развилка / маршрутизатор / сигнальный), над прямой T — сортировщик (Tagger). Наведение подсвечивает сеть',
+  down(i) {
+    if (S.mode !== 'disposal') setMode('disposal');
+    if (i.button === 2) { M().begin('Удаление утилизации'); O.eraseDisposal(i.tx, i.ty); dispDrag = { erase: true, last: [i.tx, i.ty] }; return; }
+    M().begin('Утилизация');
+    if (i.ev.shiftKey && lastPaint) {
+      const path = lpath(lastPaint[0], lastPaint[1], i.tx, i.ty, false);
+      for (let k = 1; k < path.length; k++) O.connectDisposal(path[k - 1][0], path[k - 1][1], path[k][0], path[k][1]);
+    }
+    dispDrag = { last: [i.tx, i.ty] };
+    lastPaint = [i.tx, i.ty];
+  },
+  move(i) {
+    if (!dispDrag) { hoverNetwork(i, 'disposal'); return; }
+    if (i.tx === dispDrag.last[0] && i.ty === dispDrag.last[1]) return;
+    const path = line4(dispDrag.last[0], dispDrag.last[1], i.tx, i.ty);
+    for (let k = 1; k < path.length; k++) {
+      if (dispDrag.erase) O.eraseDisposal(path[k][0], path[k][1]);
+      else O.connectDisposal(path[k - 1][0], path[k - 1][1], path[k][0], path[k][1]);
+    }
+    dispDrag.last = [i.tx, i.ty];
+    lastPaint = [i.tx, i.ty];
+  },
+  up() { if (dispDrag) { M().commit(); reportDispWarnings(); } dispDrag = null; },
+  onKey(ev) {
+    if (!S.hoverTile || ev.ctrlKey || ev.altKey) return false;
+    const k = ev.key.toLowerCase();
+    const how = k === 'r' || k === 'к' ? 'exit' : k === 't' || k === 'е' ? 'kind' : null;
+    if (!how || !O.disposalAt(...S.hoverTile)) return false;
+    M().begin(how === 'exit' ? 'Выход развилки' : 'Тип трубы');
+    const e = O.cycleDisposal(...S.hoverTile, how, ev.shiftKey);
+    M().commit();
+    if (e) toast(`${e.proto}, выход ${['↓ юг', '→ восток', '↑ север', '← запад'][rotSteps(e.rot)]}`);
+    else toast(how === 'exit' ? 'У этой трубы нет других вариантов выхода' : 'У этой трубы нет других типов');
+    return true;
+  },
+});
+
 // ===================================================================== wires
 let wireDrag = null;
 tool({
@@ -527,6 +574,7 @@ function hoverNetwork(i, kind) {
     const p = protoOf(e.proto);
     if (kind === 'wire' && p?.cable === S.wire.kind) { found = cableNetwork(model, uid); break; }
     if (kind === 'pipe' && p?.pipe !== undefined && pipeLayerOf(e) === S.pipe.layer) { found = pipeNetwork(model, uid); break; }
+    if (kind === 'disposal' && (isDisposal(p) || (p?.c || []).includes('DisposalUnit'))) { found = disposalNetwork(model, uid); break; }
   }
   const prev = S.highlight;
   S.highlight = found;
@@ -723,8 +771,9 @@ export function setMode(m) {
   S.mode = m;
   if (m === 'wiring' && S.tool !== 'wire') setTool('wire');
   else if (m === 'atmos' && S.tool !== 'pipe') setTool('pipe');
+  else if (m === 'disposal' && S.tool !== 'disposal') setTool('disposal');
   emit('mode', m);
   requestDraw();
 }
-export const TOOL_ORDER = ['select', 'wand', 'inspect', null, 'tile', 'entity', 'decal', 'fill', 'erase', 'pick', null, 'wire', 'pipe', 'link', null, 'random', 'measure', 'pan'];
+export const TOOL_ORDER = ['select', 'wand', 'inspect', null, 'tile', 'entity', 'decal', 'fill', 'erase', 'pick', null, 'wire', 'pipe', 'disposal', 'link', null, 'random', 'measure', 'pan'];
 export { entLayer };

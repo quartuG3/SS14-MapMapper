@@ -8,7 +8,7 @@ import time
 
 from . import yamlio
 
-CACHE_VERSION = 11
+CACHE_VERSION = 13
 
 DRAW_DEPTH = {
     "LowFloors": -20, "ThickPipe": -19, "ThickWire": -18, "ThinPipeAlt2": -17, "ThinPipeAlt1": -16, "ThinPipe": -15, "ThinWire": -14,
@@ -26,6 +26,20 @@ PIPE_DIRS = {
     "TNorth": 13, "TSouth": 14, "TEast": 7, "TWest": 11,
     "Fourway": 15, "All": 15,
 }
+
+# Disposal tube connections at rotation 0 (entity facing south), same bits as PIPE_DIRS. Junction-like tubes
+# list their exits as angles: 0 = South, 90 = East, 180 = North, -90 = West (DisposalTubeSystem).
+DISPOSAL_KINDS = (
+    # (component, kind, mask) -- checked in order, the first present component wins
+    ("DisposalSignalRouter", "signal", None),
+    ("DisposalRouter", "router", None),
+    ("DisposalJunction", "junction", None),
+    ("DisposalTagger", "tagger", 1 | 2),
+    ("DisposalTransit", "transit", 1 | 2),
+    ("DisposalBend", "bend", 2 | 8),
+    ("DisposalEntry", "entry", 2),
+)
+ANGLE_DIR = {0: 2, 90: 4, 180: 1, 270: 8}
 
 KEEP_COMPS = (
     "Sprite", "Icon", "IconSmooth", "CableVisualizer", "AtmosPipeLayers", "AtmosPipeColor",
@@ -171,7 +185,7 @@ class ProtoIndex:
                             v = v.strip()
                             if not v or "{" in v:
                                 continue
-                            if k.startswith(("ent-", "tiles-", "tile-", "signal-port-name-")):
+                            if k.startswith(("ent-", "tiles-", "tile-", "signal-port-name-", "dock-label-")):
                                 loc.setdefault(lang, {})[k] = v
                 except OSError:
                     pass
@@ -261,6 +275,9 @@ class ProtoIndex:
         category = "/".join(parts[:2]) if parts else "Other"
         sprite = comps.get("Sprite", {})
         dd = DRAW_DEPTH.get(_norm_name(sprite.get("drawdepth")), 0)
+        if "Door" in comps:
+            # DoorSystem sets the draw depth from the door state; mapped doors are closed
+            dd = DRAW_DEPTH.get(_norm_name(comps["Door"].get("closedDrawDepth")), DRAW_DEPTH["Doors"])
         cats = [c for c in _as_list(r.get("categories")) if isinstance(c, str)]
         name, ru = self._loc_name(pid, _norm_name(r.get("name")))
         s = {
@@ -304,6 +321,9 @@ class ProtoIndex:
                     dirs |= PIPE_DIRS.get(_norm_name(body.get("pipeDirection")), 0)
             if haspipe:
                 s["pipe"] = dirs
+        disp = _disposal(comps)
+        if disp:
+            s["disp"], s["dispKind"] = disp
         if "AtmosPipeLayers" in comps:
             s["pipeLayers"] = 1
             pl = norm_pipe_layer(comps["AtmosPipeLayers"].get("pipeLayer"))
@@ -314,6 +334,28 @@ class ProtoIndex:
             s["pipeColor"] = apc["color"]
         if "SubFloorHide" in comps:
             s["subfloor"] = 1
+            vis = [x for x in _as_list(comps["SubFloorHide"].get("visibleLayers")) if isinstance(x, str)]
+            if vis:
+                s["sfv"] = 1  # some layers stay visible when the floor covers it (vent / pump bodies)
+        con = comps.get("Construction")
+        if pid.startswith("AtmosDeviceFan") or (isinstance(con, dict) and _norm_name(con.get("graph")).startswith("AtmosDeviceFan")):
+            s["fan"] = 1
+        blip = _radar_blip(comps)
+        if blip:
+            s["blip"] = blip
+        dock = comps.get("Docking")
+        if dock is not None:
+            s["dock"] = {"color": _norm_name(dock.get("highlightedRadarColor")) or "Magenta"}
+            if _norm_name(dock.get("name")):
+                s["dock"]["name"] = _norm_name(dock.get("name"))
+        gem = comps.get("GridEdgeMarker")
+        if gem is not None:
+            b, e = _fnums(gem.get("begin", "")), _fnums(gem.get("end", ""))
+            if len(b) == 2 and len(e) == 2:
+                s["edgeMark"] = b + e
+        sse = comps.get("ShipShieldEmitter")
+        if sse is not None:
+            s["shield"] = _norm_name(sse.get("shieldColor")) or "White"
         air = comps.get("Airtight")
         if air is not None:
             bd = air.get("airBlockedDirection")
@@ -351,7 +393,7 @@ class ProtoIndex:
                              "ApcPowerProvider", "AtmosDevice", "AirAlarm", "FireAlarm", "Window",
                              "Occluder", "IFF", "FTLDrive", "Fixtures", "DeviceList", "DeviceNetwork",
                              "DeviceLinkSource", "DeviceLinkSink", "EntityStorage", "Storage", "ItemSlots",
-                             "Firelock", "AirSensor", "Anchorable", "AmeController", "AmeShield") if t in ctypes]
+                             "Firelock", "AirSensor", "Anchorable", "AmeController", "AmeShield", "DisposalUnit") if t in ctypes]
         if flags:
             s["c"] = flags
         sprite_info = {k: sprite.get(k) for k in ("sprite", "state", "layers", "texture", "noRot", "offset",
@@ -367,10 +409,24 @@ class ProtoIndex:
             rinfo["door"] = _norm_name(door.get("state"))
         if cv:
             rinfo["cablePrefix"] = _norm_name(cv.get("statePrefix"))
+        anchored = _anchored_states(comps.get("GenericVisualizer"))
+        if anchored:
+            rinfo["anchored"] = anchored
         apl = comps.get("AtmosPipeLayers")
         if apl and isinstance(apl.get("spriteLayersRsiPaths"), dict):
             rinfo["pipeLayers"] = apl["spriteLayersRsiPaths"]
             rinfo["defaultPipeLayer"] = norm_pipe_layer(apl.get("pipeLayer"))
+        if apl and isinstance(apl.get("spriteRsiPaths"), dict):
+            # base RSI per pipe layer (pump bodies shift with the layer), see SharedAtmosPipeLayersSystem
+            rinfo["pipeRsi"] = {norm_pipe_layer(k): v for k, v in apl["spriteRsiPaths"].items() if isinstance(v, str)}
+            rinfo["defaultPipeLayer"] = norm_pipe_layer(apl.get("pipeLayer"))
+        sfh = comps.get("SubFloorHide")
+        if sfh and s.get("sfv"):
+            rinfo["sfVisible"] = [x for x in _as_list(sfh.get("visibleLayers")) if isinstance(x, str)]
+        esv = comps.get("EntityStorageVisuals")
+        if esv is not None:
+            # EntityStorageVisualizerSystem, closed state: base layer state, door layer state or hidden door
+            rinfo["storage"] = {"base": _norm_name(esv.get("stateBaseClosed")), "door": _norm_name(esv.get("stateDoorClosed"))}
         self.summary[pid] = s
         self.render_info[pid] = rinfo
 
@@ -418,12 +474,97 @@ class ProtoIndex:
             "tiles": list(self.tile_summary.values()),
             "decals": list(self.decal_summary.values()),
             "migrations": self.migrations,
+            "dockLabels": {k: v for lang in ("en-US", self.cfg.locale) for k, v in self.locale.get(lang, {}).items()
+                           if k.startswith("dock-label-")},
             "ports": {kind: [self._port(kind, v) for v in m.values()] for kind, m in self.ports.items()},
         }
 
     def _port(self, kind, v):
         loc = self.locale.get(self.cfg.locale, {}).get(v["name"]) or self.locale.get("en-US", {}).get(v["name"])
         return {**v, "name": loc or v["id"]}
+
+
+BLIP_SHAPES = ("Circle", "Square", "GridAlignedBox", "Triangle", "Star", "Diamond", "Hexagon", "Arrow", "Ring")
+
+
+def _blip_config(d, base=None):
+    """BlipConfig (RadarMessages.cs) with the legacy radarColor / scale / shape fields of RadarBlipComponent."""
+    cfg = dict(base or {"color": "OrangeRed", "shape": "Circle", "bounds": [-0.5, -0.5, 0.5, 0.5], "zoom": False, "rot": False})
+    if not isinstance(d, dict):
+        return cfg
+    if _norm_name(d.get("color")):
+        cfg["color"] = d["color"]
+    if _norm_name(d.get("radarColor")):
+        cfg["color"] = d["radarColor"]
+    shape = _norm_name(d.get("shape"))
+    if shape:
+        cfg["shape"] = next((s for s in BLIP_SHAPES if s.lower() == shape.lower()), "Circle")
+    b = _fnums(d.get("bounds", ""))
+    if len(b) == 4:
+        cfg["bounds"] = b
+    sc = _num(d.get("scale"))
+    if sc is not None:
+        cfg["bounds"] = [-sc * 1.5, -sc * 1.5, sc * 1.5, sc * 1.5]
+    if "respectZoom" in d:
+        cfg["zoom"] = str(d["respectZoom"]).lower() == "true"
+    if "rotate" in d:
+        cfg["rot"] = str(d["rotate"]).lower() == "true"
+    return cfg
+
+
+def _radar_blip(comps):
+    """The blip a mapped (on-grid) entity shows on mass scanners: gridConfig if set, else config."""
+    rb = comps.get("RadarBlip")
+    if rb is None:
+        ts = comps.get("ToggleableSignature")
+        if not isinstance(ts, dict) or str(ts.get("enabled", "false")).lower() != "true":
+            return None
+        rb = ts.get("blip") if isinstance(ts.get("blip"), dict) else {}
+    if not isinstance(rb, dict) or str(rb.get("enabled", "true")).lower() == "false" \
+            or str(rb.get("requireNoGrid", "false")).lower() == "true":
+        return None
+    cfg = _blip_config(rb.get("config"))
+    cfg = _blip_config(rb, cfg)  # legacy fields on the component itself
+    if isinstance(rb.get("gridConfig"), dict):
+        cfg = _blip_config(rb["gridConfig"])
+    return cfg
+
+
+def _disposal(comps):
+    """(mask at rotation 0, kind) for disposal tubes; broken tubes (no DisposalTube) get mask 0."""
+    if "DisposalTube" not in comps:
+        con = comps.get("Construction")
+        if isinstance(con, dict) and _norm_name(con.get("graph")) == "DisposalPipe":
+            return 0, "broken"
+        return None
+    for comp, kind, mask in DISPOSAL_KINDS:
+        if comp not in comps:
+            continue
+        if mask is None:
+            # routers inherit the junction exits when they do not list their own
+            degrees = _as_list(comps[comp].get("degrees")) or _as_list((comps.get("DisposalJunction") or {}).get("degrees"))
+            mask = 0
+            for d in degrees:
+                a = _num(d)
+                if a is not None:
+                    mask |= ANGLE_DIR.get(int(round(a)) % 360, 0)
+        return mask, kind
+    return None
+
+
+def _anchored_states(gv):
+    """Sprite states the GenericVisualizer shows for an anchored disposal tube: {layer map key: state}."""
+    if not isinstance(gv, dict) or not isinstance(gv.get("visuals"), dict):
+        return None
+    out = {}
+    for key, layers in gv["visuals"].items():
+        if "DisposalTubeVisuals" not in str(key) or not isinstance(layers, dict):
+            continue
+        for mk, states in layers.items():
+            st = states.get("Anchored") if isinstance(states, dict) else None
+            if isinstance(st, dict) and _norm_name(st.get("state")):
+                out[mk] = st["state"]
+    return out or None
 
 
 def norm_pipe_layer(v):

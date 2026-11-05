@@ -7,6 +7,7 @@ TOOL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONF_PATH = os.path.join(TOOL_DIR, "conf.toml")
 CONF_EXAMPLE = os.path.join(TOOL_DIR, "conf.example.toml")
 PRESET_KINDS = ("symmetry", "random")  # subfolders of presets/
+USER_PREFIX = "user/"  # map paths in the user shuttle folder
 
 
 class ConfigError(Exception):
@@ -60,9 +61,21 @@ class Config:
         self.autosave_dir = os.path.join(TOOL_DIR, ".autosave")
         self.prefab_dir = os.path.join(TOOL_DIR, "prefabs")
         self.preset_dir = os.path.join(TOOL_DIR, "presets")
-        for d in (self.cache_dir, self.autosave_dir, self.prefab_dir,
+        self.palette_dir = os.path.join(TOOL_DIR, "palettes")
+        self.user_dir = os.path.join(TOOL_DIR, "shuttles")  # user's own shuttles, opened as "user/<file>.yml"
+        for d in (self.cache_dir, self.autosave_dir, self.prefab_dir, self.palette_dir, self.user_dir,
                   *(os.path.join(self.preset_dir, k) for k in PRESET_KINDS)):
             os.makedirs(d, exist_ok=True)
+
+    def map_path(self, rel):
+        """Path of a map file: "user/..." lives in the user shuttle folder, anything else under Resources/."""
+        rel = rel.replace("\\", "/").lstrip("/")
+        if rel.startswith(USER_PREFIX):
+            full = os.path.normpath(os.path.join(self.user_dir, rel[len(USER_PREFIX):]))
+            if not full.startswith(os.path.normpath(self.user_dir) + os.sep):
+                raise ValueError("path escapes the user folder")
+            return full
+        return self.res_path(rel)
 
     def res_path(self, rel):
         """Resolve a path relative to Resources/ and make sure it stays inside the repo."""

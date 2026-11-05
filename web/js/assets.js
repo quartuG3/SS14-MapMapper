@@ -49,17 +49,19 @@ function loadAsync(k, url) {
 const enc = encodeURIComponent;
 // changes on every server start, so the browser never shows sprites rendered by older code
 const rv = () => P.renderVersion ? '&rv=' + P.renderVersion : '';
-export function spriteKey(proto, d, s, c, l) { return `s|${proto}|${d}|${s || ''}|${c || ''}|${l || ''}`; }
-function spriteUrl(proto, d, s, c, l) {
+// h: the entity is covered by a floor tile, only its SubFloorHide visibleLayers are drawn
+export function spriteKey(proto, d, s, c, l, h) { return `s|${proto}|${d}|${s || ''}|${c || ''}|${l || ''}|${h ? 1 : ''}`; }
+function spriteUrl(proto, d, s, c, l, h) {
   let u = `/api/sprite?p=${enc(proto)}&d=${d}`;
   if (s) u += `&s=${enc(s)}`;
   if (c) u += `&c=${enc(c)}`;
   if (l) u += `&l=${enc(l)}`;
+  if (h) u += '&h=1';
   return u + rv();
 }
 /** returns {img, ox, oy}, null (no sprite) or undefined (loading). */
-export function sprite(proto, d, s, c, l) { return load(spriteKey(proto, d, s, c, l), spriteUrl(proto, d, s, c, l)); }
-export function spriteAsync(proto, d, s, c, l) { return loadAsync(spriteKey(proto, d, s, c, l), spriteUrl(proto, d, s, c, l)); }
+export function sprite(proto, d, s, c, l, h) { return load(spriteKey(proto, d, s, c, l, h), spriteUrl(proto, d, s, c, l, h)); }
+export function spriteAsync(proto, d, s, c, l, h) { return loadAsync(spriteKey(proto, d, s, c, l, h), spriteUrl(proto, d, s, c, l, h)); }
 export function tile(id, v) { return load(`t|${id}|${v}`, `/api/tile?id=${enc(id)}&v=${v}${rv()}`); }
 export function tileAsync(id, v) { return loadAsync(`t|${id}|${v}`, `/api/tile?id=${enc(id)}&v=${v}${rv()}`); }
 export function decal(id, c) { return load(`d|${id}|${c || ''}`, decalUrl(id, c)); }

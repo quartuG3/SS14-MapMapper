@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from ss14map import gridfile, yamlio
 from ss14map.atmos import exposed_tiles
-from ss14map.config import PRESET_KINDS, TOOL_DIR, Config
+from ss14map.config import PRESET_KINDS, TOOL_DIR, USER_PREFIX, Config
 from ss14map.prototypes import ProtoIndex
 from ss14map.sprites import SpriteBank, png_bytes
 
@@ -40,7 +40,23 @@ def protos_payload():
     return _payload_cache["p"]
 
 
+def map_info(full):
+    """{category, format} of a map file from its header, or None when it is not a map."""
+    try:
+        with open(full, encoding="utf-8-sig", errors="replace") as f:
+            head = f.read(400)
+    except OSError:
+        return None
+    if not head.lstrip().startswith("meta:") or "format:" not in head:
+        return None
+    cat = re.search(r"^\s+category:\s*(\w+)", head, re.M)
+    fmt = re.search(r"^\s+format:\s*(\d+)", head, re.M)
+    # format 6 files have no category: those are whole maps (stations)
+    return {"cat": cat.group(1) if cat else "Map", "format": int(fmt.group(1)) if fmt else 0}
+
+
 def list_maps():
+    """Every grid and map file of the build (grids, stations, format 6 and 7) plus the user's shuttles."""
     out = []
     for root in MAP_ROOTS:
         base = os.path.join(cfg.resources, root)
@@ -49,22 +65,41 @@ def list_maps():
                 if not fn.endswith(".yml"):
                     continue
                 full = os.path.join(dirpath, fn)
-                try:
-                    with open(full, encoding="utf-8-sig", errors="replace") as f:
-                        head = f.read(400)
-                except OSError:
-                    continue
-                if "category: Grid" not in head:
+                info = map_info(full)
+                if not info:
                     continue
                 rel = os.path.relpath(full, cfg.resources).replace("\\", "/")
-                out.append({"path": rel, "size": os.path.getsize(full)})
+                out.append({"path": rel, "size": os.path.getsize(full), **info})
     out.sort(key=lambda m: m["path"].lower())
     return out
+
+
+def list_user_maps():
+    out = []
+    for dirpath, _, files in os.walk(cfg.user_dir):
+        for fn in files:
+            full = os.path.join(dirpath, fn)
+            info = fn.endswith(".yml") and map_info(full)
+            if not info:
+                continue
+            rel = os.path.relpath(full, cfg.user_dir).replace("\\", "/")
+            out.append({"path": USER_PREFIX + rel, "size": os.path.getsize(full), "mtime": os.path.getmtime(full), **info})
+    out.sort(key=lambda m: -m["mtime"])
+    return out
+
+
+def user_file_name(name):
+    name = os.path.basename(str(name).replace("\\", "/"))
+    name = re.sub(r"\.ya?ml$", "", name, flags=re.I)
+    name = re.sub(r"[^\w\-а-яА-ЯёЁ ().]", "_", name).strip(" .") or "shuttle"
+    return name + ".yml"
 
 
 def vessel_for(map_rel):
     """Find vessel prototypes whose shuttlePath points at this map."""
     res = []
+    if map_rel.startswith(USER_PREFIX):
+        return res
     target = "/" + map_rel.replace("\\", "/").lstrip("/")
     for v in protos.vessels.values():
         if str(v.get("shuttlePath", "")).lower() == target.lower():
@@ -126,6 +161,24 @@ def preset_path(kind, name):
         raise ValueError(f"unknown preset kind {kind!r}")
     name = re.sub(r"[^\w\-а-яА-ЯёЁ ()]", "_", str(name)).strip() or "preset"
     return os.path.join(cfg.preset_dir, kind, name + ".json")
+
+
+def palette_path(name):
+    name = re.sub(r"[^\w\-а-яА-ЯёЁ ()]", "_", str(name)).strip() or "palette"
+    return os.path.join(cfg.palette_dir, name + ".json")
+
+
+def list_palettes():
+    out = []
+    for fn in sorted(os.listdir(cfg.palette_dir), key=str.lower):
+        if not fn.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(cfg.palette_dir, fn), encoding="utf-8-sig") as f:
+                out.append({"file": fn[:-5], "data": json.load(f)})
+        except (OSError, ValueError) as e:
+            out.append({"file": fn[:-5], "error": str(e)})
+    return out
 
 
 def list_presets(kind):
@@ -210,11 +263,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"repo": cfg.repo, "locale": cfg.locale})
             if route == "maps":
                 return self._json(list_maps())
+            if route == "usermaps":
+                return self._json(list_user_maps())
             if route == "map":
-                path = cfg.res_path(q["path"])
+                path = cfg.map_path(q["path"])
                 with open(path, encoding="utf-8-sig", newline="") as f:
                     text = f.read()
-                doc = gridfile.load(text, protos.migrations if q.get("migrate", "1") == "1" else None)
+                doc = gridfile.load(text, protos.migrations if q.get("migrate", "1") == "1" else None, q.get("grid") or None)
                 doc["path"] = q["path"]
                 doc["vessels"] = vessel_for(q["path"])
                 data = json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -223,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(gridfile.new_doc(q.get("name", "grid")))
             if route == "sprite":
                 res = bank.compose(q["p"], int(q.get("d", 0)) % 4, q.get("s") or None, q.get("c") or None,
-                                   q.get("l") or None)
+                                   q.get("l") or None, q.get("h") == "1")
                 return self._image(res)
             if route == "icon":
                 return self._image(bank.icon(q["p"]))
@@ -244,6 +299,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(out)
             if route == "presets":
                 return self._json(list_presets(q["kind"]))
+            if route == "palettes":
+                return self._json(list_palettes())
             if route == "autosave":
                 p = os.path.join(cfg.autosave_dir, "autosave.json")
                 if not os.path.exists(p):
@@ -272,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("write", True):
                     if not rel or not rel.endswith(".yml"):
                         return self._err("path must end with .yml")
-                    full = cfg.res_path(rel)
+                    full = cfg.map_path(rel)
                     os.makedirs(os.path.dirname(full), exist_ok=True)
                     with open(full, "w", encoding="utf-8", newline="") as f:
                         f.write(text)
@@ -311,6 +368,43 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "file": os.path.basename(p)[:-5]})
             if route == "preset/delete":
                 p = preset_path(body["kind"], body["name"])
+                if os.path.exists(p):
+                    os.remove(p)
+                return self._json({"ok": True})
+            if route == "upload":
+                # a shuttle file from the user's computer -> shuttles/<name>.yml
+                text = body["text"]
+                if text.startswith("\ufeff"):
+                    text = text[1:]
+                try:
+                    doc = gridfile.load(text)
+                except Exception as e:  # noqa
+                    return self._err(f"{body.get('name')}: это не файл карты SS14 ({type(e).__name__}: {e})")
+                name = user_file_name(body.get("name") or "shuttle")
+                full = os.path.join(cfg.user_dir, name)
+                if os.path.exists(full) and not body.get("overwrite"):
+                    return self._json({"exists": True, "path": USER_PREFIX + name}, 409)
+                with open(full, "w", encoding="utf-8", newline="") as f:
+                    f.write(text)
+                return self._json({"ok": True, "path": USER_PREFIX + name, "grids": len(doc["gridList"]),
+                                   "tiles": len(doc["tiles"]), "entities": len(doc["entities"])})
+            if route == "usermap/delete":
+                full = cfg.map_path(body["path"])
+                if not body["path"].startswith(USER_PREFIX):
+                    return self._err("only files of the user folder can be deleted")
+                if os.path.exists(full):
+                    os.remove(full)
+                return self._json({"ok": True})
+            if route == "palette":
+                p = palette_path(body["name"])
+                with open(p, "w", encoding="utf-8") as f:
+                    json.dump(body["data"], f, ensure_ascii=False, indent=1)
+                old = body.get("old")
+                if old and palette_path(old) != p and os.path.exists(palette_path(old)):
+                    os.remove(palette_path(old))  # renamed
+                return self._json({"ok": True, "file": os.path.basename(p)[:-5]})
+            if route == "palette/delete":
+                p = palette_path(body["name"])
                 if os.path.exists(p):
                     os.remove(p)
                 return self._json({"ok": True})

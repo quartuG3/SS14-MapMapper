@@ -3,7 +3,7 @@ import { S, emit } from './state.js';
 import { P } from './protos.js';
 import * as A from './assets.js';
 import {
-  key, unkey, tileOf, rotSteps, HALF_PI, visualParam, pipeColorOf, pipeLayerOf, entLayer, openPipeEnds, DIR_VEC,
+  key, unkey, tileOf, rotSteps, HALF_PI, visualParam, pipeColorOf, pipeLayerOf, entLayer, openPipeEnds, openDisposalEnds, DIR_VEC,
 } from './logic.js';
 
 const RULER = 20;
@@ -64,6 +64,14 @@ function hashColor(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return `hsl(${Math.abs(h) % 360},35%,35%)`;
+}
+
+/** Under a floor tile in game-like subfloor mode: 'hide' (skip the entity), 'covered' (only its SubFloorHide visibleLayers) or ''. */
+function coverState(model, e, p, opts, editor) {
+  if (!p || !p.subfloor || !(opts.hideSubfloor || (editor && S.layers.realSubfloor))) return '';
+  const t = model.getTile(...tileOf(e.x, e.y));
+  if (subfloorVisibleOn(t, opts.grates ?? (S.subfloor.showOnGrates ? S.subfloor.grates : ''))) return '';
+  return p.sfv ? 'covered' : 'hide';
 }
 
 const grateCache = new Map();
@@ -138,20 +146,26 @@ export function render(c, opts) {
 
   // entities
   const mode = editor ? S.mode : 'normal';
-  for (const e of sortedEnts(model)) {
+  // in atmos mode fans are part of the atmos layout: drawn last (over airlocks) and at full opacity
+  const fansOnTop = mode === 'atmos';
+  const late = [];
+  const ents = sortedEnts(model);
+  for (let i = 0; i < ents.length + late.length; i++) {
+    const deferred = i >= ents.length;
+    const e = deferred ? late[i - ents.length] : ents[i];
     if (e.x < minx || e.x > maxx || e.y < miny || e.y > maxy) continue;
     const p = P.ents.get(e.proto);
+    if (!deferred && fansOnTop && p && p.fan) { late.push(e); continue; }
     const lay = entLayer(p);
     if (!L[lay]) continue;
     if (p && p.pipe !== undefined && !S.pipeLayers[pipeLayerOf(e)] && editor) continue;
-    if ((opts.hideSubfloor || (editor && S.layers.realSubfloor)) && p && p.subfloor) {
-      const t = model.getTile(...tileOf(e.x, e.y));
-      if (!subfloorVisibleOn(t, opts.grates ?? (S.subfloor.showOnGrates ? S.subfloor.grates : ''))) continue;
-    }
+    const cover = coverState(model, e, p, opts, editor);
+    if (cover === 'hide') continue;
     let alpha = 1;
     if (mode === 'wiring' && lay !== 'wires') alpha = (p && (p.c || []).some(x => x === 'Apc' || x === 'PowerNetworkBattery' || x === 'CableTerminal')) || (p && p.supply) ? 0.85 : 0.28;
-    if (mode === 'atmos' && lay !== 'pipes') alpha = 0.28;
-    if (mode === 'normal' && editor && (lay === 'pipes' || lay === 'wires')) alpha = 0.9;
+    if (mode === 'atmos' && lay !== 'pipes' && !p?.fan) alpha = 0.28;
+    if (mode === 'disposal' && lay !== 'disposal') alpha = p && (p.c || []).includes('DisposalUnit') ? 0.85 : 0.28;
+    if (mode === 'normal' && editor && (lay === 'pipes' || lay === 'wires' || lay === 'disposal')) alpha = 0.9;
     if (editor && lay === 'markers') alpha *= 0.55;
     const [sx, sy] = w2s(e.x, e.y, v, w, h);
     if (!p) {
@@ -162,7 +176,7 @@ export function render(c, opts) {
     const vp = visualParam(model, e, p);
     const col = p.pipe !== undefined ? pipeColorOf(e) : null;
     const pl = p.pipeLayers ? pipeLayerOf(e) : null;
-    const img = A.sprite(e.proto, steps, vp, col, pl && pl !== 'Primary' ? pl : null);
+    const img = A.sprite(e.proto, steps, vp, col, pl && pl !== 'Primary' ? pl : null, cover === 'covered');
     if (img === undefined) continue;
     if (img === null) {
       if (editor && L.placeholders) drawPlaceholder(c, sx, sy, z, e.proto, '#8060c0');
@@ -212,6 +226,7 @@ export function draw() {
   render(ctx, { view: v, w: W, h: H, grid: S.layers.grid, bg: '#0b0d12' });
   if (S.model) drawOverlays(ctx);
   drawRulers();
+  emit('viewDrawn');
   document.getElementById('stZoom').textContent = `масштаб ${Math.round(v.z)} px/тайл`;
 }
 
@@ -246,6 +261,14 @@ function drawOverlays(c) {
   if (S.mode === 'atmos' && S.layers.openEnds) {
     c.fillStyle = '#ff4d4d';
     for (const o of openPipeEnds(model)) {
+      const [dx, dy] = DIR_VEC[o.d];
+      const [sx, sy] = w2s(o.x + 0.5 + dx * 0.42, o.y + 0.5 + dy * 0.42);
+      c.beginPath(); c.arc(sx, sy, Math.max(2, z * 0.09), 0, Math.PI * 2); c.fill();
+    }
+  }
+  if (S.mode === 'disposal' && S.layers.openEnds) {
+    c.fillStyle = '#ff9f3d';
+    for (const o of openDisposalEnds(model)) {
       const [dx, dy] = DIR_VEC[o.d];
       const [sx, sy] = w2s(o.x + 0.5 + dx * 0.42, o.y + 0.5 + dy * 0.42);
       c.beginPath(); c.arc(sx, sy, Math.max(2, z * 0.09), 0, Math.PI * 2); c.fill();
@@ -434,7 +457,7 @@ export async function bake(opts) {
   const w = wT * z, h = hT * z;
   const view = { cx: b.minx - m + wT / 2, cy: b.miny - m + hT / 2, z };
   const layers = { ...S.layers, tiles: opts.tiles !== false, decals: opts.decals !== false, walls: true, objects: true,
-    subfloor: true, pipes: !opts.noUtilities, wires: !opts.noUtilities, markers: !!opts.markers };
+    subfloor: true, pipes: !opts.noUtilities, wires: !opts.noUtilities, disposal: !opts.noUtilities, markers: !!opts.markers };
   // preload every image the render needs
   const jobs = [];
   for (const t of model.tiles.values()) jobs.push(A.tileAsync(t[0], t[2] || 0));
@@ -443,8 +466,10 @@ export async function bake(opts) {
     const p = P.ents.get(e.proto);
     if (!p) continue;
     const pl = p.pipeLayers ? pipeLayerOf(e) : null;
+    const cover = coverState(model, e, p, { hideSubfloor: opts.hideSubfloor, grates: opts.grates }, false);
+    if (cover === 'hide') continue;
     jobs.push(A.spriteAsync(e.proto, rotSteps(e.rot), visualParam(model, e, p), p.pipe !== undefined ? pipeColorOf(e) : null,
-      pl && pl !== 'Primary' ? pl : null));
+      pl && pl !== 'Primary' ? pl : null, cover === 'covered'));
   }
   await Promise.all(jobs);
   const cv = document.createElement('canvas');

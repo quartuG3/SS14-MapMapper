@@ -2,12 +2,14 @@
 import { S, on, emit, toast, savePrefs } from './state.js';
 import { P, search, displayName, ent as protoOf, mirrorId } from './protos.js';
 import { newGroup, symToFile, symFromFile, randomToFile, randomFromFile } from './symmetry.js';
+import * as PL from './palettes.js';
+import * as RD from './radar.js';
 import * as A from './assets.js';
 import * as O from './ops.js';
 import { TOOLS, TOOL_ORDER, setTool, setMode, startPaste, fillCells } from './tools.js';
 import * as TL from './tools.js';
 import * as L from './links.js';
-import { requestDraw, centerOn, fitToContent, bake } from './view.js';
+import { requestDraw, centerOn, fitToContent, bake, size as viewSize, s2w } from './view.js';
 import { validate, stats, vesselYaml, findReplace } from './features.js';
 import { key, unkey, tileOf, rotSteps, stepsToRot, normAngle, HALF_PI, leakTiles, pipeLayerOf, pipeColorOf, hasComp } from './logic.js';
 
@@ -145,6 +147,13 @@ export function renderToolOptions() {
     for (const [c, n] of PIPE_COLORS) add(h('span', { class: 'swatch' + (S.pipe.color === c ? ' on' : ''), title: n, style: `background:${c.slice(0, 7)}`, onclick: () => { S.pipe.color = c; savePrefs(); renderToolOptions(); } }));
     add(h('input', { type: 'color', value: S.pipe.color.slice(0, 7), title: 'Свой цвет', oninput: e => { S.pipe.color = e.target.value.toUpperCase() + 'FF'; savePrefs(); } }));
   }
+  if (opts.includes('disposal')) {
+    const names = { junction: 'Развилка', router: 'Маршрутизатор', signal: 'Сигнальный' };
+    const tips = { junction: 'DisposalJunction / Flipped / YJunction', router: 'DisposalRouter: предметы с метками сортировщика уходят вбок', signal: 'DisposalSignalRouter: направление переключается сигналом' };
+    add(h('span', { title: 'Какой прототип ставить, когда к трубе подводится третья ветка' }, 'Новые развилки:'),
+      h('div', { class: 'seg' }, ...Object.entries(names).map(([k, n]) => h('button', { class: S.disposal.junction === k ? 'on' : '', title: tips[k], onclick: () => { S.disposal.junction = k; savePrefs(); renderToolOptions(); } }, n))),
+      h('span', { class: 'muted' }, 'над трубой: R — выход развилки, T — тип; крестовин нет'));
+  }
   if (opts.includes('wire')) {
     const seg = h('div', { class: 'seg' }, ...['HV', 'MV', 'LV'].map(k => h('button', { class: S.wire.kind === k ? 'on' : '', onclick: () => { S.wire.kind = k; savePrefs(); renderToolOptions(); } }, k)));
     add(seg, h('span', { class: 'muted' }, 'HV — генераторы/SMES, MV — подстанция→APC, LV — APC→потребители'));
@@ -181,6 +190,13 @@ const DEVICE_GROUPS = {
     ['Канистры', p => /^(Air|Oxygen|Nitrogen|Plasma|CarbonDioxide|Storage)Canister$/.test(p.id)],
   ],
 };
+DEVICE_GROUPS.disposal = [
+  ['Блоки', p => (p.c || []).includes('DisposalUnit') && !/Toilet/.test(p.id)],
+  ['Трубы', p => ['transit', 'bend', 'entry', 'broken'].includes(p.dispKind)],
+  ['Сортировка', p => p.dispKind === 'tagger' || p.dispKind === 'router' || p.dispKind === 'signal'],
+  ['Развилки', p => p.dispKind === 'junction'],
+  ['Туалеты', p => (p.c || []).includes('DisposalUnit') && /Toilet/.test(p.id)],
+];
 const deviceCache = {};
 function devicesFor(mode) {
   if (deviceCache[mode]) return deviceCache[mode];
@@ -190,9 +206,10 @@ function devicesFor(mode) {
   return deviceCache[mode];
 }
 function deviceBar(add) {
-  const mode = S.mode === 'normal' ? (S.tool === 'wire' ? 'wiring' : 'atmos') : S.mode;
+  const mode = S.mode === 'normal' ? ({ wire: 'wiring', disposal: 'disposal' })[S.tool] || 'atmos' : S.mode;
   const bar = h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%' });
-  if (S.tool === 'entity') bar.append(h('button', { onclick: () => setTool(mode === 'wiring' ? 'wire' : 'pipe') }, mode === 'wiring' ? '⚡ к кабелям' : '◎ к трубам'));
+  const back = { wiring: ['wire', '⚡ к кабелям'], atmos: ['pipe', '◎ к трубам'], disposal: ['disposal', '♻ к утилизации'] }[mode];
+  if (S.tool === 'entity') bar.append(h('button', { onclick: () => setTool(back[0]) }, back[1]));
   for (const [name, list] of devicesFor(mode)) {
     const grp = h('span', { style: 'display:inline-flex;gap:1px;align-items:center;border:1px solid var(--line);border-radius:4px;padding:1px 3px' }, h('span', { class: 'muted', style: 'font-size:11px;margin-right:2px' }, name));
     for (const p of list) {
@@ -339,13 +356,23 @@ export function buildPalette() {
   palObserver = new IntersectionObserver(entries => {
     for (const en of entries) if (en.isIntersecting) { const img = en.target; if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; } palObserver.unobserve(img); }
   }, { root: $('palGrid') });
-  on('pick', kind => { setPalKind(kind, true); });
+  on('pick', kind => {
+    if (S.palView !== 'custom') { setPalKind(kind, true); return; }
+    S.palKind = kind;
+    markSelected(kind, S.sel[kind]);
+    showInfo(kind, S.sel[kind]);
+  });
   on('recent', renderRecent);
   setPalKind(S.palKind);
 }
 export function setPalKind(kind, keepSearch) {
-  S.palKind = kind;
+  // palView is what the tab shows ('custom' = own palettes), palKind the kind of the current element
+  S.palView = kind;
+  if (kind !== 'custom') S.palKind = kind;
   $('palKind').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.kind === kind));
+  $('palCatRow').style.display = kind === 'custom' ? 'none' : '';
+  $('palCustomBar').style.display = kind === 'custom' ? '' : 'none';
+  if (kind === 'custom') renderCustomBar();
   const cat = $('palCat');
   cat.innerHTML = '';
   cat.append(h('option', { value: '' }, 'Все категории'));
@@ -366,15 +393,20 @@ function itemImg(kind, id) {
 function selectedId(kind) { return S.sel[kind]; }
 function selectItem(kind, id, ev) {
   if (ev && (ev.ctrlKey || ev.metaKey)) { toggleInSet(kind, id); return; }
+  if (ev && ev.shiftKey) { togglePalItem(kind, id); return; }
   S.sel[kind] = id;
   if (kind === 'tile') S.tileOpts.rm = 0;
   savePrefs();
   const tool = kind === 'tile' ? 'tile' : kind === 'decal' ? 'decal' : 'entity';
   if (!['fill', 'random', 'select', 'wand'].includes(S.tool) || kind !== S.palKind) setTool(tool);
   S.palKind = kind;
-  for (const el of document.querySelectorAll('.pi')) el.classList.toggle('sel', el.dataset.id === id && el.dataset.kind === kind);
+  markSelected(kind, id);
   showInfo(kind, id);
   renderToolOptions();
+  if (S.palView === 'custom') renderCustomBar();
+}
+function markSelected(kind, id) {
+  for (const el of document.querySelectorAll('.pi')) el.classList.toggle('sel', el.dataset.id === id && el.dataset.kind === kind);
 }
 function showInfo(kind, id) {
   const p = kind === 'tile' ? P.tiles.get(id) : kind === 'decal' ? P.decals.get(id) : P.ents.get(id);
@@ -382,19 +414,24 @@ function showInfo(kind, id) {
   let extra = '';
   if (kind === 'entity') extra = ` · ${p.cat}${p.price ? ' · ' + p.price + '$' : ''}${p.sm ? ' · smooth:' + p.sm.key : ''}${p.cable ? ' · ' + p.cable : ''}${p.pipe !== undefined ? ' · труба' : ''}`;
   if (kind === 'tile') extra = ` · вариантов ${p.variants}${p.subfloor ? ' · подпол' : ''}`;
+  const pal = PL.activePalette();
+  const inPal = PL.hasItem(pal, kind, id);
   $('palInfo').innerHTML = '';
-  $('palInfo').append(h('b', {}, id), h('br'), displayName(kind, id) + extra);
+  $('palInfo').append(h('button', { style: 'float:right;padding:0 5px', title: pal ? `${inPal ? 'Убрать из' : 'Добавить в'} палитру «${pal.name}» (Shift+клик)` : 'Создать свою палитру с этим элементом (Shift+клик)',
+    onclick: () => togglePalItem(kind, id) }, inPal ? '★' : '☆'), h('b', {}, id), h('br'), displayName(kind, id) + extra);
 }
 function palItem(kind, p, small) {
   const set = O.activeSet();
   const inset = set && set.kind === kind && set.items.some(i => i.id === p.id);
-  const el = h('div', { class: 'pi' + (selectedId(kind) === p.id ? ' sel' : '') + (inset ? ' inset' : ''), title: displayName(kind, p.id) + '\n' + p.id + '\nCtrl+клик — в набор рандома', onclick: ev => selectItem(kind, p.id, ev) },
+  const inpal = PL.hasItem(PL.activePalette(), kind, p.id);
+  const el = h('div', { class: 'pi' + (selectedId(kind) === p.id ? ' sel' : '') + (inset ? ' inset' : '') + (inpal ? ' inpal' : ''), title: displayName(kind, p.id) + '\n' + p.id + '\nCtrl+клик — в набор рандома\nShift+клик — в свою палитру', onclick: ev => selectItem(kind, p.id, ev) },
     itemImg(kind, p.id), small ? null : h('div', { class: 'lbl' }, p.id));
   el.dataset.id = p.id;
   el.dataset.kind = kind;
   return el;
 }
 export function renderPalette() {
+  if (S.palView === 'custom') { renderCustomPalette(); return; }
   const kind = S.palKind;
   const grid = $('palGrid');
   grid.innerHTML = '';
@@ -428,6 +465,7 @@ export function renderPalette() {
 function renderRecent() {
   const box = $('palRecent');
   box.innerHTML = '';
+  if (S.palView === 'custom') return;
   for (const id of S.recent[S.palKind] || []) {
     const m = S.palKind === 'tile' ? P.tiles : S.palKind === 'decal' ? P.decals : P.ents;
     const p = m.get(id);
@@ -438,6 +476,142 @@ function renderRecent() {
     box.append(el);
   }
 }
+// ---------------------------------------------------------------- custom palettes
+const PAL_KIND_NAMES = { tile: 'Тайлы', entity: 'Прототипы', decal: 'Декали' };
+const protoMap = kind => kind === 'tile' ? P.tiles : kind === 'decal' ? P.decals : P.ents;
+function persistPalette(p) {
+  return PL.savePalette(p).catch(e => { toast('Палитра не сохранена: ' + e.message, 'err', 6000); });
+}
+async function newPalette(items = []) {
+  const name = prompt('Имя палитры', PL.uniqueName('Палитра ' + (S.palettes.length + 1)));
+  if (!name || !name.trim()) return null;
+  const p = { file: null, name: PL.uniqueName(name.trim()), items };
+  S.palettes.push(p);
+  await persistPalette(p);
+  PL.setActivePalette(p);
+  refreshPaletteViews();
+  return p;
+}
+function refreshPaletteViews() {
+  if (S.palView === 'custom') renderCustomBar();
+  renderPalette();
+}
+/** Shift+click: add to / remove from the active palette (creates one when there is none). */
+async function togglePalItem(kind, id) {
+  let p = PL.activePalette();
+  if (!p) { p = await newPalette([{ kind, id }]); if (p) toast(`Палитра «${p.name}»: ${id} добавлен`, 'ok'); return; }
+  const on = PL.toggleItem(p, kind, id);
+  persistPalette(p);
+  for (const el of document.querySelectorAll('.pi')) if (el.dataset.kind === kind && el.dataset.id === id) el.classList.toggle('inpal', on);
+  if (S.palView === 'custom') refreshPaletteViews();
+  if (S.sel[kind] === id) showInfo(kind, id);
+  toast(`«${p.name}»: ${id} ${on ? 'добавлен' : 'убран'} (${p.items.length})`);
+}
+function addSelectionToPalette(p) {
+  const model = M();
+  const items = [];
+  for (const k of S.selection) {
+    const [x, y] = unkey(k);
+    const t = model.getTile(x, y);
+    if (t) items.push({ kind: 'tile', id: t[0] });
+    for (const uid of model.entsAt(x, y)) items.push({ kind: 'entity', id: model.ents.get(uid).proto });
+    for (const d of model.decalsAt(x, y)) items.push({ kind: 'decal', id: d.id });
+  }
+  const n = PL.addItems(p, items);
+  persistPalette(p);
+  refreshPaletteViews();
+  toast(`Добавлено в «${p.name}»: ${n}`, 'ok');
+}
+async function importPalettes() {
+  let n = 0;
+  for (const f of await pickJsonFiles()) {
+    try {
+      for (const p of PL.palettesFromImport(f.data, f.name)) {
+        p.name = PL.uniqueName(p.name);
+        S.palettes.push(p);
+        await persistPalette(p);
+        PL.setActivePalette(p);
+        n++;
+      }
+    } catch (e) { toast(`${f.name}: ${e.message}`, 'err'); }
+  }
+  if (n) toast(`Импортировано палитр: ${n}`, 'ok');
+  refreshPaletteViews();
+}
+function renderCustomBar() {
+  const bar = $('palCustomBar');
+  bar.innerHTML = '';
+  const act = PL.activePalette();
+  const sel = h('select', { class: 'grow', onchange: e => { PL.setActivePalette(S.palettes.find(p => p.file === e.target.value)); refreshPaletteViews(); } },
+    ...S.palettes.map(p => h('option', { value: p.file, selected: p === act }, `${p.name} (${p.items.length})`)));
+  if (!S.palettes.length) sel.append(h('option', { value: '' }, '— нет палитр —'));
+  const cur = S.sel[S.palKind];
+  bar.append(
+    h('div', { class: 'row' }, sel,
+      h('button', { title: 'Новая палитра', onclick: () => newPalette() }, '+'),
+      h('button', { title: 'Переименовать', disabled: !act, onclick: () => {
+        const n = prompt('Новое имя палитры', act.name);
+        if (!n || !n.trim() || n.trim() === act.name) return;
+        act.name = PL.uniqueName(n.trim(), act);
+        persistPalette(act).then(refreshPaletteViews);
+      } }, '✎'),
+      h('button', { class: 'danger', title: 'Удалить палитру (файл в palettes/)', disabled: !act, onclick: async () => {
+        if (!confirm(`Удалить палитру «${act.name}»?`)) return;
+        try { await PL.deletePalette(act); } catch (e) { toast(e.message, 'err'); }
+        refreshPaletteViews();
+      } }, '✕')),
+    h('div', { class: 'row' },
+      h('button', { disabled: !act || !cur || PL.hasItem(act, S.palKind, cur), title: `Добавить текущий элемент: ${cur || '—'}`, onclick: () => togglePalItem(S.palKind, cur) }, '+ текущий'),
+      h('button', { disabled: !act || !S.selection.size, title: 'Добавить тайлы, прототипы и декали из выделения на карте', onclick: () => addSelectionToPalette(act) }, '+ из выделения'),
+      h('span', { class: 'sep' }),
+      h('button', { disabled: !act, title: 'Скачать палитру .json в «Загрузки»', onclick: () => downloadJson(PL.paletteToFile(act), fileName(act.name)) }, '⬇'),
+      h('button', { disabled: !S.palettes.length, title: 'Скачать все палитры одним файлом', onclick: () => downloadJson(PL.bundleToFile(S.palettes), fileName('palettes')) }, '⬇ все'),
+      h('button', { title: 'Загрузить палитры из .json (одна палитра или файл «все»)', onclick: importPalettes }, '⬆ импорт')));
+}
+let palDrag = null;
+function renderCustomPalette() {
+  const grid = $('palGrid');
+  grid.innerHTML = '';
+  grid.onscroll = null;
+  const act = PL.activePalette();
+  const note = txt => grid.append(h('div', { class: 'muted', style: 'grid-column:1/-1' }, txt));
+  if (!act) { note('Своих палитр нет. Создайте палитру кнопкой «+» или Shift+клик по элементу в каталоге (Тайлы / Прототипы / Декали).'); return; }
+  const terms = $('palSearch').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  let shown = 0;
+  for (const kind of ['tile', 'entity', 'decal']) {
+    const items = act.items.filter(it => it.kind === kind && (!terms.length || terms.every(t => (it.id + ' ' + displayName(kind, it.id)).toLowerCase().includes(t))));
+    if (!items.length) continue;
+    grid.append(h('div', { class: 'pal-sec' }, `${PAL_KIND_NAMES[kind]} · ${items.length}`));
+    for (const it of items) {
+      const p = protoMap(kind).get(it.id);
+      const el = palItem(kind, p || { id: it.id }, false);
+      if (!p) { el.classList.add('missing'); el.title = `${it.id}\nНет в репозитории`; }
+      const img = el.querySelector('img');
+      img.src = img.dataset.src;
+      el.draggable = true;
+      el.addEventListener('contextmenu', ev => { ev.preventDefault(); togglePalItem(kind, it.id); });
+      el.addEventListener('dragstart', () => { palDrag = it; });
+      el.addEventListener('dragover', ev => { if (palDrag && palDrag.kind === kind) { ev.preventDefault(); el.classList.add('drop'); } });
+      el.addEventListener('dragleave', () => el.classList.remove('drop'));
+      el.addEventListener('drop', ev => {
+        ev.preventDefault();
+        if (!palDrag || palDrag === it) return;
+        act.items.splice(act.items.indexOf(palDrag), 1);
+        act.items.splice(act.items.indexOf(it), 0, palDrag);
+        palDrag = null;
+        persistPalette(act);
+        renderCustomPalette();
+      });
+      grid.append(el);
+      shown++;
+    }
+  }
+  if (!shown) note(act.items.length ? 'Ничего не найдено' : 'Палитра пуста. Shift+клик по элементу в каталоге добавляет его сюда, «+ из выделения» — всё из выделенной области карты.');
+  else grid.append(h('div', { class: 'muted', style: 'grid-column:1/-1;font-size:11px' }, 'Клик — выбрать, ПКМ — убрать из палитры, перетаскивание — порядок.'));
+  const cur = S.sel[S.palKind];
+  if (cur) showInfo(S.palKind, cur);
+}
+
 function toggleInSet(kind, id) {
   let set = O.activeSet();
   if (!set || set.kind !== kind) {
@@ -817,8 +991,8 @@ function tileInfo(box, x, y) {
 // ===================================================================== layers
 const LAYER_NAMES = {
   tiles: 'Тайлы', decals: 'Декали', walls: 'Стены и окна', objects: 'Объекты', subfloor: 'Подпол (прочее)',
-  pipes: 'Трубы', wires: 'Кабели', markers: 'Маркеры / спавны', grid: 'Сетка', chunks: 'Границы чанков (16×16)',
-  leaks: 'Утечки атмосферы', openEnds: 'Открытые концы труб (атмос)', placeholders: 'Заглушки без спрайта',
+  pipes: 'Трубы', disposal: 'Утилизационные трубы', wires: 'Кабели', markers: 'Маркеры / спавны', grid: 'Сетка', chunks: 'Границы чанков (16×16)',
+  leaks: 'Утечки атмосферы', openEnds: 'Открытые концы труб (атмос, утилизация)', placeholders: 'Заглушки без спрайта',
   links: 'Связи устройств (сети и сигналы)', realSubfloor: 'Подпол как в игре (скрыт под полом, виден на решётках)',
 };
 export function renderLayers() {
@@ -992,24 +1166,123 @@ export function updateStatus() {
 }
 
 // ===================================================================== dialogs
+const kb = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' МБ' : Math.round(n / 1024) + ' КБ';
+const catBadge = m => m.format < 7
+  ? h('span', { class: 'badge old', title: `Старый формат ${m.format}: грид или целая карта, станции` }, 'f' + m.format)
+  : h('span', { class: 'badge' + (m.cat === 'Grid' ? '' : ' map'), title: m.cat === 'Grid' ? 'Грид (шаттл, POI)' : 'Карта целиком (станция, несколько гридов)' }, m.cat === 'Grid' ? 'грид' : 'карта');
+
+/** Upload .yml files into the user folder (shuttles/). Returns the uploaded paths. */
+export async function uploadMaps(files) {
+  const done = [];
+  for (const f of files) {
+    if (!/\.ya?ml$/i.test(f.name)) { toast(`${f.name}: нужен файл .yml`, 'err'); continue; }
+    const text = await f.text();
+    let body = { name: f.name, text };
+    for (;;) {
+      const r = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (r.status === 409 && j.exists) {
+        if (!confirm(`В «Моих шаттлах» уже есть ${j.path.slice(5)}. Заменить?`)) break;
+        body = { ...body, overwrite: true };
+        continue;
+      }
+      if (!r.ok) { toast(j.error || String(r.status), 'err', 8000); break; }
+      toast(`Загружено: ${j.path.slice(5)} — гридов ${j.grids}, тайлов ${j.tiles}, сущностей ${j.entities}`, 'ok');
+      done.push(j.path);
+      break;
+    }
+  }
+  return done;
+}
+
 export async function openDialog(loadMap) {
-  const body = h('div', {});
-  const filter = h('input', { type: 'search', placeholder: 'Фильтр (например _Mono/Shuttles)', class: 'grow' });
+  const open = (path, grid) => { close(); loadMap(path, grid); };
+  // ---- own shuttles (shuttles/ in the mapper folder)
+  const userList = h('div', { class: 'list', style: 'max-height:22vh' }, h('div', { class: 'li muted' }, 'Загрузка…'));
+  const picker = h('input', { type: 'file', accept: '.yml,.yaml', multiple: true, style: 'display:none', onchange: () => { upload([...picker.files]); picker.value = ''; } });
+  const drop = h('div', { class: 'dropzone', title: 'Файлы копируются в папку shuttles/ маппера',
+    onclick: () => picker.click() }, '⬆ Перетащите сюда .yml шаттла или ', h('u', {}, 'выберите файлы'), picker);
+  const autoOpen = h('input', { type: 'checkbox', checked: S.saveOpts.openUploaded !== false, onchange: e => { S.saveOpts.openUploaded = e.target.checked; savePrefs(); } });
+  async function upload(files) {
+    drop.classList.add('busy');
+    const paths = await uploadMaps(files);
+    drop.classList.remove('busy');
+    await fillUser(paths);
+    if (paths.length === 1 && autoOpen.checked) open(paths[0]);
+  }
+  async function fillUser(highlight = []) {
+    let list = [];
+    try { list = await api.get('/api/usermaps'); } catch (e) { userList.innerHTML = ''; userList.append(h('div', { class: 'li' }, e.message)); return; }
+    userList.innerHTML = '';
+    for (const m of list) {
+      userList.append(h('div', { class: 'li' + (highlight.includes(m.path) ? ' hl' : ''), onclick: () => open(m.path) },
+        h('span', {}, catBadge(m), ' ', m.path.slice(5)),
+        h('span', { class: 'row', style: 'margin:0;flex-wrap:nowrap' },
+          h('span', { class: 'muted' }, `${kb(m.size)} · ${new Date(m.mtime * 1000).toLocaleString('ru-RU')}`),
+          h('button', { class: 'danger', style: 'padding:0 5px', title: 'Удалить файл из shuttles/', onclick: async ev => {
+            ev.stopPropagation();
+            if (!confirm(`Удалить ${m.path.slice(5)} из «Моих шаттлов»?`)) return;
+            await api.post('/api/usermap/delete', { path: m.path });
+            fillUser();
+          } }, '✕'))));
+    }
+    if (!list.length) userList.append(h('div', { class: 'li muted' }, 'Пока пусто: загрузите свой шаттл выше.'));
+  }
+  // ---- every grid / map of the build
+  const filter = h('input', { type: 'search', placeholder: 'Фильтр (например _Mono/Shuttles или box)', class: 'grow' });
+  const kinds = { all: 'Все', Grid: 'Гриды', Map: 'Карты' };
+  let kind = 'all';
+  const seg = h('div', { class: 'seg' }, ...Object.entries(kinds).map(([k, n]) => h('button', { 'data-k': k, class: k === kind ? 'on' : '', onclick: () => { kind = k; seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); render(); } }, n)));
   const list = h('div', { class: 'list' }, h('div', { class: 'li muted' }, 'Загрузка…'));
-  body.append(h('div', { class: 'row' }, filter), list);
-  const close = modal('Открыть карту грида', body);
+  const count = h('span', { class: 'muted' });
+  const body = h('div', {},
+    h('h4', { style: 'margin-top:0' }, 'Мои шаттлы (shuttles/)'),
+    drop, h('div', { class: 'row' }, h('label', { class: 'chk' }, autoOpen, 'открыть после загрузки')), userList,
+    h('h4', {}, 'Билд'),
+    h('div', { class: 'row' }, filter, seg, count), list,
+    h('p', { class: 'muted' }, 'Открывается любой файл карты: гриды и целые карты (станции, формат 6 и 7). В карте с несколькими гридами редактируется самый крупный, другой выбирается в заголовке после открытия; остальное содержимое файла сохраняется без изменений.'));
+  const close = modal('Открыть', body);
+  // drag'n'drop onto the whole dialog
+  const box = body.closest('.modal-box') || body;
+  const over = ev => { if ([...ev.dataTransfer.types].includes('Files')) { ev.preventDefault(); drop.classList.add('over'); } };
+  body.addEventListener('dragover', over);
+  body.addEventListener('dragenter', over);
+  body.addEventListener('dragleave', ev => { if (!body.contains(ev.relatedTarget)) drop.classList.remove('over'); });
+  body.addEventListener('drop', ev => {
+    ev.preventDefault();
+    drop.classList.remove('over');
+    const files = [...ev.dataTransfer.files];
+    if (files.length) upload(files);
+  });
+  void box;
+  fillUser();
   let maps = [];
   try { maps = await api.get('/api/maps'); } catch (e) { list.innerHTML = ''; list.append(h('div', { class: 'li' }, e.message)); return; }
-  const render = () => {
+  function render() {
     list.innerHTML = '';
     const q = filter.value.toLowerCase();
-    for (const m of maps.filter(m => m.path.toLowerCase().includes(q)).slice(0, 400)) {
-      list.append(h('div', { class: 'li', onclick: () => { close(); loadMap(m.path); } }, h('span', {}, m.path), h('span', { class: 'muted' }, Math.round(m.size / 1024) + ' КБ')));
+    // format 6 files do not say whether they are a grid or a whole map: they show up under both
+    const found = maps.filter(m => m.path.toLowerCase().includes(q) && (kind === 'all' || m.format < 7 || (kind === 'Grid') === (m.cat === 'Grid')));
+    count.textContent = `${found.length} из ${maps.length}`;
+    for (const m of found.slice(0, 500)) {
+      list.append(h('div', { class: 'li', onclick: () => open(m.path) }, h('span', {}, catBadge(m), ' ', m.path), h('span', { class: 'muted' }, kb(m.size))));
     }
-  };
+    if (found.length > 500) list.append(h('div', { class: 'li muted' }, `…и ещё ${found.length - 500}, уточните фильтр`));
+  }
   filter.oninput = render;
   render();
   filter.focus();
+}
+
+/** Grid picker in the top bar for files with several grids. */
+export function renderGridPicker(doc, loadMap) {
+  const box = $('gridPick');
+  box.innerHTML = '';
+  const grids = doc.gridList || [];
+  if (grids.length < 2 || !doc.path) return;
+  box.append(h('select', { title: 'Грид этого файла, который редактируется. Остальные гриды и содержимое карты сохраняются без изменений.',
+    onchange: e => { const v = e.target.value; e.target.value = doc.gridUid; loadMap(doc.path, v); } },
+  ...grids.map(g => h('option', { value: g.uid, selected: g.uid === doc.gridUid }, `${g.name || 'грид'} #${g.uid} · ${g.tiles} тайлов`))));
 }
 
 export function saveDialog(doSave, asNew) {
@@ -1022,13 +1295,14 @@ export function saveDialog(doSave, asNew) {
   const toRepo = h('input', { type: 'checkbox', checked: !!S.saveOpts.toRepo });
   const gname = h('input', { class: 'grow', value: (model.doc.gridEnt.components.find(c => c.type === 'MetaData') || {}).name || 'grid' });
   const body = h('div', {},
-    h('div', { class: 'row' }, 'Путь (от Resources/):', path),
+    h('div', { class: 'row' }, h('span', { title: 'Путь от Resources/ или user/<файл>.yml — папка shuttles/ маппера' }, 'Путь (от Resources/ или user/…):'), path,
+      h('button', { title: 'Сохранять в «Мои шаттлы» (папка shuttles/ маппера)', onclick: () => { path.value = 'user/' + path.value.split('/').pop(); toRepo.checked = true; } }, '→ мои шаттлы')),
     h('div', { class: 'row' }, 'Имя грида (MetaData):', gname),
     h('h4', {}, 'Атмосфера'),
     h('div', { class: 'row' }, h('label', { class: 'chk' }, regen, 'Пересоздать GridAtmosphere (как fixgridatmos)'), mix),
     h('div', { class: 'row' }, h('label', { class: 'chk' }, exposed, 'Тайлы с выходом в космос — вакуум')),
     h('h4', {}, 'Куда'),
-    h('div', { class: 'row' }, h('label', { class: 'chk' }, toRepo, 'Записать в репозиторий по этому пути (иначе файл скачивается в «Загрузки»)')),
+    h('div', { class: 'row' }, h('label', { class: 'chk' }, toRepo, 'Записать файл по этому пути: в репозиторий или для user/… в папку shuttles/ (иначе файл скачивается в «Загрузки»)')),
     h('p', { class: 'muted' }, 'Неизвестные компоненты и поля сохраняются без изменений.'),
     h('div', { class: 'row' }, h('button', { class: 'on', onclick: go }, 'Сохранить'), h('button', { onclick: () => closeModal() }, 'Отмена')));
   modal(asNew || isNew ? 'Сохранить как' : 'Сохранить', body);
@@ -1285,6 +1559,216 @@ export function mirrorDialog() {
   render();
 }
 
+// ===================================================================== mass scanner
+/** Settings of the scanner (S.radar). redraw() is called after every change; sync(result) updates the range hint. */
+function radarControls(model, redraw, { onSave, onPin, compact = false } = {}) {
+  const o = S.radar;
+  const rangeInp = h('input', { type: 'number', min: 8, max: 4096, step: 8, style: 'width:80px', value: o.range || '', title: 'Радиус обзора в метрах (тайлах). Пусто — по размеру шаттла. Колесо мыши над сканером — масштаб',
+    onchange: e => { o.range = Math.max(0, Math.round(+e.target.value) || 0); redraw(); } });
+  const centers = RD.radarCenters(model);
+  const centerSel = h('select', { onchange: e => { o.center = e.target.value; redraw(); } },
+    h('option', { value: 'console', selected: o.center === 'console' }, centers.length ? 'Консоль шаттла' : 'Консоль (на шаттле нет)'),
+    ...centers.map(c => h('option', { value: c.uid, selected: o.center === c.uid }, c.label)),
+    h('option', { value: 'grid', selected: o.center === 'grid' }, 'Центр грида'));
+  const color = (k, title) => h('input', { type: 'color', title, value: (o[k] || '#000000').slice(0, 7), oninput: e => { o[k] = e.target.value.toUpperCase(); redraw(); } });
+  const autoShield = RD.shieldColor(model);
+  const hasGen = [...model.ents.values()].some(e => protoOf(e.proto)?.shield);
+  const shieldInp = h('input', { type: 'color', title: 'Цвет щита (по умолчанию — цвет генератора щита на шаттле)', value: rgbHex(o.shieldColor || autoShield),
+    oninput: e => { o.shieldColor = e.target.value.toUpperCase(); redraw(); } });
+  const colorInp = color('color'), bgInp = color('bg');
+  const el = h('div', { class: 'radar-controls' },
+    h('div', { class: 'row' }, h('label', {}, 'Центр ', centerSel), h('label', {}, 'Радиус ', rangeInp, ' м'),
+      h('button', { title: 'Подогнать радиус под шаттл', onclick: () => { o.range = 0; rangeInp.value = ''; redraw(); } }, 'По размеру')),
+    h('div', { class: 'row' },
+      h('label', { title: 'Цвет контура своего грида (в игре — MediumSpringGreen)' }, 'Контур ', colorInp),
+      h('label', { title: 'Цвет фона сканера' }, 'Фон ', bgInp),
+      h('button', { title: 'Цвета как в игре', onclick: () => { o.color = '#00FA9A'; o.bg = '#141414'; colorInp.value = '#00fa9a'; bgInp.value = '#141414'; redraw(); } }, 'Как в игре'),
+      compact ? null : h('span', { class: 'sep' }),
+      chk('щит', o, 'shield', redraw), shieldInp,
+      h('button', { title: hasGen ? 'Цвет генератора щита на шаттле' : 'Генератора щита на шаттле нет: цвет щита по умолчанию', onclick: () => { o.shieldColor = ''; shieldInp.value = rgbHex(autoShield); redraw(); } }, hasGen ? 'из генератора' : 'по умолчанию')),
+    h('div', { class: 'row' }, chk('сигнатуры', o, 'blips', redraw), chk('доки', o, 'docks', redraw), chk('названия доков', o, 'labels', redraw),
+      chk('азимуты', o, 'azimuth', redraw), chk('кольца дальности', o, 'rings', redraw),
+      h('span', { style: 'margin-left:auto' }),
+      onPin ? h('button', { title: 'Закрепить сканер мини-окном поверх редактора: перетаскивается, обновляется вживую', onclick: onPin }, '📌 Закрепить') : null,
+      onSave ? h('button', { onclick: onSave }, 'Сохранить PNG') : null));
+  return { el, sync: r => { rangeInp.placeholder = `авто ${r.range}`; } };
+}
+function savePng(cv, model) {
+  cv.toBlob(b => {
+    const a = h('a', { href: URL.createObjectURL(b), download: ((model.path || 'shuttle').split('/').pop().replace(/\.yml$/, '')) + '-radar.png' });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+}
+/** Mouse wheel over a scanner canvas changes the range. */
+function radarWheel(cv, getLast, redraw) {
+  cv.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    const cur = S.radar.range || getLast().range;
+    S.radar.range = Math.max(8, Math.min(4096, Math.round(cur * (ev.deltaY < 0 ? 1 / 1.2 : 1.2))));
+    redraw(true);
+  }, { passive: false });
+}
+
+export function radarDialog() {
+  const model = M();
+  const SIZE = 600;
+  const cv = h('canvas', { width: SIZE, height: SIZE, style: `width:${SIZE}px;height:${SIZE}px;display:block;border-radius:4px;cursor:zoom-in` });
+  const info = h('span', { class: 'muted' });
+  let last = null;
+  let ctl = null;
+  const redraw = rebuild => {
+    savePrefs();
+    last = RD.drawRadar(cv.getContext('2d'), SIZE, SIZE, S.radar, model);
+    if (rebuild) { const n = radarControls(model, redraw, opts); ctl.el.replaceWith(n.el); ctl = n; }
+    ctl.sync(last);
+    info.textContent = `радиус ${Math.round(last.range)} м · центр (${last.center[0].toFixed(1)}, ${last.center[1].toFixed(1)})`;
+    radarDock.refresh();
+  };
+  const opts = { onSave: () => savePng(cv, model), onPin: () => { closeModal(); radarDock.open(); } };
+  ctl = radarControls(model, redraw, opts);
+  radarWheel(cv, () => last, redraw);
+  const body = h('div', {}, ctl.el, cv, h('div', { class: 'row' }, info),
+    h('p', { class: 'muted' }, 'Как консоль шаттла в игре: контур грида и метки рёбер (RadarEdgeMarker), доки с названиями, сигнатуры (RadarBlip: консоли, ДАМ, двигатели, орудия…) с цветами и формами из прототипов сборки, щит — овал вокруг грида с отступом 50 м. IFF не рисуется.'));
+  modal('Сканер масс', body);
+  redraw();
+}
+
+// Pinned scanner: a floating mini window over the editor (S.radarDock: open, x, y, size, expanded).
+// The scan is cached in an offscreen canvas and rebuilt on map / settings changes; the visible canvas
+// adds the editor viewport on top, so panning the editor is cheap.
+export const radarDock = (() => {
+  let panel = null, cv = null, base = null, body = null, ctl = null, last = null, model = null;
+  let dirty = true, timer = null;
+  const D = () => S.radarDock;
+  const dpr = () => window.devicePixelRatio || 1;
+
+  function build() {
+    const stage = $('stage');
+    panel = h('div', { id: 'radarDock', class: 'float-panel' });
+    const head = h('div', { class: 'fp-head', title: 'Перетащите, чтобы переместить' },
+      h('span', { class: 'fp-title' }, '◎ Сканер масс'),
+      h('span', { style: 'margin-left:auto' }),
+      h('button', { title: 'Настройки сканера', onclick: () => { D().expanded = !D().expanded; layout(); savePrefs(); } }, '⚙'),
+      h('button', { title: 'Открыть большой сканер', onclick: () => radarDialog() }, '⤢'),
+      h('button', { title: 'Открепить (закрыть мини-окно)', onclick: close }, '✕'));
+    cv = h('canvas', { title: 'Клик — показать это место в редакторе, колесо — масштаб сканера' });
+    base = document.createElement('canvas');
+    body = h('div', { class: 'fp-body' }, cv);
+    const grip = h('div', { class: 'fp-resize', title: 'Размер' });
+    panel.append(head, body, grip);
+    stage.append(panel);
+    drag(head, (dx, dy, st) => { D().x = st.x + dx; D().y = st.y + dy; place(); }, () => ({ x: D().x, y: D().y }));
+    drag(grip, (dx, dy, st) => { D().size = Math.max(160, Math.min(720, st.size + Math.max(dx, dy))); layout(); }, () => ({ size: D().size }));
+    radarWheel(cv, () => last, () => { savePrefs(); rebuildControls(); });
+    cv.addEventListener('click', ev => {
+      if (!last) return;
+      const r = cv.getBoundingClientRect(), s = D().size;
+      const sc = (s / 2) / last.range;
+      centerOn(last.center[0] + (ev.clientX - r.left - s / 2) / sc, last.center[1] - (ev.clientY - r.top - s / 2) / sc);
+    });
+    on('viewDrawn', () => { if (D().open) overlay(); });
+    window.addEventListener('resize', () => { if (D().open) place(); });
+    on('doc', () => { if (D().open) { bindModel(); rebuildControls(); dirty = true; paint(); } });
+  }
+  function drag(handle, apply, start) {
+    handle.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 || ev.target.tagName === 'BUTTON') return;
+      ev.preventDefault();
+      const st = start(), x0 = ev.clientX, y0 = ev.clientY;
+      const move = e => apply(e.clientX - x0, e.clientY - y0, st);
+      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); savePrefs(); };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+  }
+  function bindModel() {
+    if (model === M()) return;
+    model = M();
+    if (model) model.on(() => {
+      if (!D().open) return;
+      dirty = true;
+      clearTimeout(timer);
+      timer = setTimeout(paint, 200);
+    });
+  }
+  function rebuildControls() {
+    if (!M()) return;
+    const n = radarControls(M(), () => { savePrefs(); dirty = true; paint(); }, { compact: true, onSave: () => savePng(base, M()) });
+    if (ctl) ctl.el.replaceWith(n.el); else body.append(n.el);
+    ctl = n;
+    layout();
+  }
+  /** Keep the window inside the stage. */
+  function place() {
+    const st = $('stage'), w = panel.offsetWidth, hh = panel.offsetHeight;
+    if (D().x === null) { D().x = st.clientWidth - w - 14; D().y = 30; }
+    D().x = Math.max(0, Math.min(st.clientWidth - w, D().x));
+    D().y = Math.max(0, Math.min(st.clientHeight - Math.min(hh, 40), D().y));
+    panel.style.left = D().x + 'px';
+    panel.style.top = D().y + 'px';
+  }
+  function layout() {
+    const s = D().size;
+    cv.style.width = cv.style.height = s + 'px';
+    cv.width = cv.height = Math.round(s * dpr());
+    if (ctl) ctl.el.style.display = D().expanded ? '' : 'none';
+    panel.style.width = (D().expanded ? Math.max(s, 460) : s) + 12 + 'px';   // + body padding and border
+    dirty = true;
+    paint();
+    place();
+  }
+  function paint() {
+    if (!panel || !D().open || !M()) return;
+    if (dirty) {
+      const s = Math.round(D().size * dpr());
+      base.width = base.height = s;
+      last = RD.drawRadar(base.getContext('2d'), s, s, S.radar, M());
+      ctl?.sync(last);
+      dirty = false;
+    }
+    overlay();
+  }
+  /** Scan image + the area the editor currently shows. */
+  function overlay() {
+    if (!last || !cv) return;
+    const c = cv.getContext('2d');
+    c.drawImage(base, 0, 0);
+    const s = cv.width, sc = (s / 2) / last.range;
+    const [W, H] = viewSize();
+    const [x0, y1] = s2w(0, 0), [x1, y0] = s2w(W, H);
+    const px = x => s / 2 + (x - last.center[0]) * sc, py = y => s / 2 - (y - last.center[1]) * sc;
+    c.strokeStyle = 'rgba(255,255,255,0.55)';
+    c.lineWidth = dpr();
+    c.setLineDash([4 * dpr(), 3 * dpr()]);
+    c.strokeRect(px(x0), py(y1), (x1 - x0) * sc, (y1 - y0) * sc);
+    c.setLineDash([]);
+  }
+  function open() {
+    if (!panel) build();
+    D().open = true;
+    savePrefs();
+    panel.style.display = '';
+    bindModel();
+    rebuildControls();
+  }
+  function close() {
+    D().open = false;
+    savePrefs();
+    if (panel) panel.style.display = 'none';
+  }
+  return { open, close, refresh: () => { if (panel && D().open) { rebuildControls(); dirty = true; paint(); } }, isOpen: () => !!D().open };
+})();
+
+function rgbHex(c) {
+  const t = document.createElement('canvas').getContext('2d');
+  t.fillStyle = c;
+  const v = t.fillStyle;
+  if (v.startsWith('#')) return v;
+  const m = v.match(/[\d.]+/g).slice(0, 3).map(n => (+n).toString(16).padStart(2, '0'));
+  return '#' + m.join('');
+}
+
 export function validateDialog() {
   const issues = validate(M());
   S.markers = issues.filter(i => i.at && (i.sev === 'err' || i.sev === 'warn')).map(i => ({ x: i.at[0], y: i.at[1], sev: i.sev }));
@@ -1451,8 +1935,10 @@ export function helpDialog() {
     ['ЛКМ / ПКМ', 'действие инструмента / стирание (для кистей, труб, кабелей, прототипов)'],
     ['Колесо, средняя кнопка, Пробел+тянуть', 'масштаб / перемещение вида'],
     ['M W V B E D G X I', 'выделение, палочка, инспектор, тайлы, прототипы, декали, заливка, ластик, пипетка'],
-    ['C P N L H', 'кабели, трубы, случайная кисть, линейка, рука'],
-    ['1 / 2 / 3', 'режимы: обычный / проводка / атмос'],
+    ['C P U N L H', 'кабели, трубы, утилизация, случайная кисть, линейка, рука'],
+    ['1 / 2 / 3 / 4', 'режимы: обычный / проводка / атмос / утилизация'],
+    ['R / Shift+R, T', 'утилизация: над развилкой — сменить выход / тип (развилка, маршрутизатор, сигнальный; прямая ↔ сортировщик)'],
+    ['Shift+клик в палитре', 'добавить элемент в активную свою палитру / убрать из неё'],
     ['R / Shift+R', 'поворот размещаемого прототипа / декали / вставки'],
     ['[ / ]', 'размер кисти'],
     ['Alt+клик', 'пипетка в любом инструменте'],

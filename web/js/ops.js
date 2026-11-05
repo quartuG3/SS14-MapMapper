@@ -4,7 +4,8 @@ import { P, ent as protoOf } from './protos.js';
 import {
   key, unkey, tileOf, rotSteps, normAngle, HALF_PI, mirrorPlacement, mirrorTileVal, rotateTileVal, mirrorDecal,
   PLAIN_PIPES, plainPipeBase, pipeLayerOf, pipeColorOf, pipeDirsOf, fitPipe, CARDINALS, DIR_VEC, OPP, mulberry32, weightedPick,
-  entLayer, isStructure, isMarker, hasComp, STACKABLE_RE,
+  entLayer, isStructure, isMarker, hasComp, STACKABLE_RE, isDisposal, dispDirsOf, dispExit, fitDisposal, disposalVariants,
+  DISP_FAMILIES, bitCount,
 } from './logic.js';
 
 const M = () => S.model;
@@ -116,6 +117,7 @@ export function visibleEntsAt(x, y) {
     if (p && p.pipe !== undefined && !S.pipeLayers[pipeLayerOf(e)]) return false;
     if (S.mode === 'wiring' && lay !== 'wires' && S.tool === 'wire') return false;
     if (S.mode === 'atmos' && lay !== 'pipes' && S.tool === 'pipe') return false;
+    if (S.mode === 'disposal' && lay !== 'disposal' && S.tool === 'disposal') return false;
     return true;
   }).sort((a, b) => ((protoOf(b.proto)?.dd ?? 0) - (protoOf(a.proto)?.dd ?? 0)));
 }
@@ -213,6 +215,80 @@ export function erasePipe(x, y, layer, mirror = true) {
       if (n && (pipeDirsOf(n) & OPP[d])) setPipeMask(t.x + dx, t.y + dy, layer, pipeDirsOf(n) & ~OPP[d]);
     }
   }
+}
+
+// ---------------------------------------------------------------- disposals
+/** The disposal tube on a tile (broken tubes included). */
+export function disposalAt(x, y) {
+  const model = M();
+  for (const uid of model.entsAt(x, y)) {
+    const e = model.ents.get(uid);
+    if (isDisposal(protoOf(e.proto))) return e;
+  }
+  return null;
+}
+export const disposalMaskAt = (x, y) => { const e = disposalAt(x, y); return e ? dispDirsOf(e) : 0; };
+/** Replace the tube on a tile so it connects exactly mask. Keeps tagger / router kinds and the junction exit. */
+export function setDisposalMask(x, y, mask) {
+  const model = M();
+  const old = disposalAt(x, y);
+  if (old && dispDirsOf(old) === mask && mask) return true;
+  const op = old && protoOf(old.proto);
+  const f = mask ? fitDisposal(mask, { oldKind: op && op.dispKind, junctionKind: S.disposal.junction, exit: old ? dispExit(old.rot) : 0 }) : null;
+  if (mask && !f) return false;
+  if (old) model.removeEnt(old.uid);
+  if (f) model.addEnt({ proto: f.proto, x: x + 0.5, y: y + 0.5, rot: f.rot, comps: [] });
+  return true;
+}
+export const dispWarnings = new Set();
+/** connect two adjacent tiles with a disposal tube (mirror aware). */
+export function connectDisposal(ax, ay, bx, by, mirror = true) {
+  const A = tileTargets(ax, ay, mirror), B = tileTargets(bx, by, mirror);
+  for (let i = 0; i < A.length && i < B.length; i++) {
+    const a = A[i], b = B[i];
+    const d = dirBetween(a.x, a.y, b.x, b.y);
+    if (!d) continue;
+    const ma = disposalMaskAt(a.x, a.y) | d, mb = disposalMaskAt(b.x, b.y) | OPP[d];
+    // there is no four-way disposal tube: keep both tiles as they are
+    if (bitCount(ma) > 3 || bitCount(mb) > 3) { dispWarnings.add(`(${bitCount(ma) > 3 ? a.x + ', ' + a.y : b.x + ', ' + b.y})`); continue; }
+    setDisposalMask(a.x, a.y, ma);
+    setDisposalMask(b.x, b.y, mb);
+  }
+}
+export function eraseDisposal(x, y, mirror = true) {
+  for (const t of tileTargets(x, y, mirror)) {
+    const e = disposalAt(t.x, t.y);
+    if (!e) continue;
+    M().removeEnt(e.uid);
+    for (const d of CARDINALS) {
+      const [dx, dy] = DIR_VEC[d];
+      const m = disposalMaskAt(t.x + dx, t.y + dy);
+      if (m & OPP[d]) setDisposalMask(t.x + dx, t.y + dy, m & ~OPP[d]);
+    }
+  }
+}
+/** R on a junction: next exit (same connections); T: next junction family / tagger <-> plain pipe. */
+export function cycleDisposal(x, y, how, back = false) {
+  const e = disposalAt(x, y);
+  if (!e) return null;
+  const p = protoOf(e.proto);
+  const mask = dispDirsOf(e);
+  let vars;
+  if (how === 'exit') vars = disposalVariants(p.dispKind, mask);
+  else {
+    const ring = DISP_FAMILIES.includes(p.dispKind) ? DISP_FAMILIES : ['transit', 'tagger'].includes(p.dispKind) ? ['transit', 'tagger'] : [p.dispKind];
+    const kind = ring[(ring.indexOf(p.dispKind) + (back ? ring.length - 1 : 1)) % ring.length];
+    vars = disposalVariants(kind, mask);
+    // keep the exit when the new family has it
+    const same = vars.find(v => v.exit === dispExit(e.rot));
+    if (same) vars = [same];
+  }
+  if (!vars.length) return null;
+  const cur = vars.findIndex(v => v.proto === e.proto && rotSteps(v.rot) === rotSteps(e.rot));
+  const next = vars[how === 'exit' ? (cur + (back ? vars.length - 1 : 1)) % vars.length : 0];
+  if (next.proto === e.proto && rotSteps(next.rot) === rotSteps(e.rot)) return null;
+  M().removeEnt(e.uid);
+  return M().addEnt({ proto: next.proto, x: x + 0.5, y: y + 0.5, rot: next.rot, comps: [] });
 }
 
 // ---------------------------------------------------------------- cables
@@ -379,7 +455,7 @@ export function randomRotation(sel, rnd) {
     for (const uid of model.entsAt(x, y)) {
       const e = model.ents.get(uid);
       const p = protoOf(e.proto);
-      if (!p || p.sm || p.cable || p.pipe !== undefined) continue;
+      if (!p || p.sm || p.cable || p.pipe !== undefined || p.disp !== undefined) continue;
       model.updateEnt(uid, { rot: normAngle(Math.floor(rnd() * 4) * HALF_PI) });
     }
   }

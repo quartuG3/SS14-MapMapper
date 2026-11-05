@@ -1,11 +1,11 @@
 // Global editor state and a tiny event bus.
 export const S = {
   model: null,
-  mode: 'normal',                 // normal | wiring | atmos
+  mode: 'normal',                 // normal | wiring | atmos | disposal
   view: { cx: 0, cy: 0, z: 32 },  // world center, pixels per tile
   layers: {
     tiles: true, decals: true, walls: true, objects: true, subfloor: true, pipes: true, wires: true,
-    markers: true, grid: true, chunks: false, leaks: false, openEnds: true, placeholders: true, links: false, realSubfloor: false,
+    disposal: true, markers: true, grid: true, chunks: false, leaks: false, openEnds: true, placeholders: true, links: false, realSubfloor: false,
   },
   pipeLayers: { Primary: true, Secondary: true, Tertiary: true },
   mirror: { x: false, y: false, ax: 0.5, ay: 0.5 },
@@ -27,6 +27,7 @@ export const S = {
   clipboard: null,
   pipe: { layer: 'Primary', color: '#0055CCFF' },
   wire: { kind: 'LV' },
+  disposal: { junction: 'junction' },   // family for new three-way tubes: junction | router | signal
   decal: { color: '#FFFFFFFF', snap: true, angle: 0, z: 0, cleanable: false },
   tileOpts: { randomVariant: true, rm: 0 },  // rm: rotation of the brush tile for rotmir tiles (R)
   entOpts: { replace: true, free: false, step: 'center', allowDup: false, underlay: true, underlayTile: 'Plating', replaceStructs: false },
@@ -35,8 +36,13 @@ export const S = {
   selFilter: { tiles: true, ents: true, decals: true },
   random: { sets: [], active: 0, seed: 1337, fixedSeed: false, density: 25, target: 'brush' },
   recent: { tile: [], entity: [], decal: [] },
+  palettes: [],                   // custom palettes from palettes/ (see palettes.js)
+  palOpts: { active: '' },        // file of the active custom palette
   savePath: null,
   saveOpts: { toRepo: false },     // false: download the .yml, true: write into the repo
+  // mass scanner (radar.js): range 0 = fit, colours of the own grid outline and of the backing
+  radar: { range: 0, color: '#00FA9A', bg: '#141414', center: 'console', shield: false, shieldColor: '', blips: true, docks: true, labels: true, azimuth: true, rings: true },
+  radarDock: { open: false, x: null, y: null, size: 240, expanded: false },   // pinned scanner mini window
   subfloor: { grates: 'Lattice|Grat|Grid|Catwalk|TechMaint|Mesh', showOnGrates: true },
 };
 
@@ -44,7 +50,7 @@ const handlers = {};
 export function on(ev, fn) { (handlers[ev] ||= []).push(fn); }
 export function emit(ev, ...a) { for (const fn of handlers[ev] || []) fn(...a); }
 
-const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel', 'saveOpts'];
+const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'disposal', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel', 'saveOpts', 'palOpts', 'radar', 'radarDock'];
 export function loadPrefs() {
   try {
     const j = JSON.parse(localStorage.getItem('ss14mapper.prefs') || '{}');

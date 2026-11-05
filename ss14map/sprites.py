@@ -62,6 +62,33 @@ def tint(img, color):
     return ImageChops.multiply(img, layer)
 
 
+def parse_scale(v):
+    """Layer scale: "x, y" or a single number."""
+    if isinstance(v, (int, float)):
+        return float(v), float(v)
+    if isinstance(v, str):
+        if "," in v:
+            return parse_vec(v) if parse_vec(v) != (0.0, 0.0) else (1.0, 1.0)
+        try:
+            return float(v), float(v)
+        except ValueError:
+            pass
+    return 1.0, 1.0
+
+
+def parse_angle(v):
+    """Angle field in degrees: "45", "90 deg", "1.57 rad"."""
+    if v is None:
+        return 0.0
+    s = str(v).strip().lower()
+    try:
+        if s.endswith("rad"):
+            return math.degrees(float(s[:-3]))
+        return float(s.removesuffix("deg").strip())
+    except ValueError:
+        return 0.0
+
+
 def parse_vec(v):
     if not isinstance(v, str):
         return 0.0, 0.0
@@ -149,24 +176,28 @@ class SpriteBank:
         return None
 
     # ---------------------------------------------------------------- composition
-    def compose(self, pid, step=0, smooth=None, color=None, pipe_layer=None):
-        """Return (Image, ox, oy) where (ox, oy) is the pixel of the entity origin, or None."""
-        key = (pid, step, smooth, color, pipe_layer)
+    def compose(self, pid, step=0, smooth=None, color=None, pipe_layer=None, covered=False):
+        """Return (Image, ox, oy) where (ox, oy) is the pixel of the entity origin, or None.
+        covered: the entity is under a floor tile, only the SubFloorHide visibleLayers are drawn."""
+        key = (pid, step, smooth, color, pipe_layer, covered)
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
-            res = self._compose(pid, step, smooth, color, pipe_layer)
+            res = self._compose(pid, step, smooth, color, pipe_layer, covered)
             if len(self._cache) > 20000:
                 self._cache.clear()
             self._cache[key] = res
             return res
 
-    def _compose(self, pid, step, smooth, color, pipe_layer):
+    def _compose(self, pid, step, smooth, color, pipe_layer, covered=False):
         info = self.protos.render_info.get(pid)
         if info is None:
             return None
         sp = info.get("sprite") or {}
         base_rsi = sp.get("sprite")
+        pipe_rsi = info.get("pipeRsi") or {}
+        if pipe_layer and pipe_layer != info.get("defaultPipeLayer", "Primary") and pipe_layer in pipe_rsi:
+            base_rsi = pipe_rsi[pipe_layer]  # SetBaseRsi: layers without their own sprite follow the pipe layer
         # "<smooth>|<map>,<map>" : extra map keys that the client asks to show (e.g. AME core)
         show_maps = set()
         if isinstance(smooth, str) and "|" in smooth:
@@ -182,6 +213,27 @@ class SpriteBank:
             layers.append({"state": sp.get("state"), "texture": sp.get("texture")})
         if not layers:
             layers.append({})  # layer 0 placeholder (IconSmooth / cable visualizers set its state)
+        anchored = info.get("anchored")
+        if anchored:
+            # mapped entities are anchored: disposal tubes show pipe-* instead of the loose conpipe-* state
+            for l in layers:
+                maps = l.get("map") if isinstance(l.get("map"), list) else []
+                for mk in maps:
+                    if mk in anchored:
+                        l["state"] = anchored[mk]
+        storage = info.get("storage")
+        if storage:
+            # closed entity storage: base / door states from EntityStorageVisuals, no closed door state hides the door
+            for l in layers:
+                maps = l.get("map") if isinstance(l.get("map"), list) else []
+                if "enum.StorageVisualLayers.Base" in maps and storage.get("base"):
+                    l["state"] = storage["base"]
+                if "enum.StorageVisualLayers.Door" in maps:
+                    if storage.get("door"):
+                        l["state"] = storage["door"]
+                    else:
+                        l["visible"] = "false"
+        sf_visible = set(info.get("sfVisible") or ()) if covered else None
 
         rsi_dir = STEP_TO_RSI[step % 4]
         sm = info.get("sm")
@@ -229,6 +281,8 @@ class SpriteBank:
         pieces = []  # (img, cx, cy) cx, cy = pixel offset of image center relative to entity origin
         for l in layers + extra:
             maps = l.get("map") if isinstance(l.get("map"), list) else []
+            if sf_visible is not None and not sf_visible.intersection(maps):
+                continue
             if show_maps.intersection(maps):
                 pass
             elif str(l.get("visible", "true")).lower() == "false" or STATE_HIDDEN_MAPS.intersection(maps):
@@ -276,8 +330,20 @@ class SpriteBank:
                 img = tint(img, ent_color)
             lox, loy = parse_vec(l.get("offset"))
             ox, oy = (lox + sox), (loy + soy)
-            if rotate_deg:
-                img = img.rotate(rotate_deg, expand=True)
+            # layer transform: scale, then rotate (CCW, degrees), then offset
+            lsx, lsy = parse_scale(l.get("scale"))
+            if (lsx, lsy) != (1.0, 1.0):
+                img = img.resize((max(1, round(img.width * abs(lsx))), max(1, round(img.height * abs(lsy)))), Image.NEAREST)
+                if lsx < 0:
+                    img = img.transpose(Image.FLIP_LEFT_RIGHT)
+                if lsy < 0:
+                    img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            rotate_deg += parse_angle(l.get("rotation"))
+            if rotate_deg % 360:
+                if rotate_deg % 90:
+                    img = img.rotate(rotate_deg, resample=Image.NEAREST, expand=True)
+                else:
+                    img = img.rotate(rotate_deg, expand=True)
             if not no_rot and step % 4:
                 # layer and sprite offsets live in entity space and rotate with it,
                 # also for directional states (the RSI direction only swaps the frame)

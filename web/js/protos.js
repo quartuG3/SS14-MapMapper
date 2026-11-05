@@ -7,6 +7,7 @@ export const P = {
   renderVersion: '',
   entCats: [],
   srcPorts: new Map(),
+  dockLabels: {},             // dock-label-* locale strings for Docking names
   sinkPorts: new Map(),
 };
 
@@ -18,6 +19,7 @@ export async function loadProtos() {
   for (const t of j.tiles) P.tiles.set(t.id, t);
   for (const d of j.decals) P.decals.set(d.id, d);
   P.migrations = j.migrations || {};
+  P.dockLabels = j.dockLabels || {};
   P.renderVersion = j.renderVersion || '';
   for (const p of (j.ports && j.ports.source) || []) P.srcPorts.set(p.id, p);
   for (const p of (j.ports && j.ports.sink) || []) P.sinkPorts.set(p.id, p);

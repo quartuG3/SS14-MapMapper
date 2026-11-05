@@ -83,7 +83,9 @@ def normalize_angle(r):
 
 
 # ---------------------------------------------------------------------------- load
-def load(text, migrations=None):
+def load(text, migrations=None, grid=None):
+    """Parse a map file. grid: uid of the grid to edit; by default the grid with the most tiles.
+    Everything that is not a child of that grid (the map, other grids and their contents) is kept as is."""
     eol = "\r\n" if "\r\n" in text[:4000] else "\n"
     data = yamlio.load(text)
     comments = _top_comments(text)
@@ -91,8 +93,6 @@ def load(text, migrations=None):
         raise ValueError("not an SS14 map file")
     meta = data.get("meta", {})
     tilemap = data.get("tilemap", {}) or {}
-    grids = data.get("grids") or []
-    grid_uid = str(grids[0]) if grids else None
 
     proto_of = {}
     ents = {}
@@ -105,14 +105,11 @@ def load(text, migrations=None):
             proto_of[uid] = proto
             order[uid] = len(order)
 
-    if grid_uid is None:
-        # pick the entity with MapGrid
-        for uid, e in ents.items():
-            if any(c.get("type") == "MapGrid" for c in e.get("components", [])):
-                grid_uid = uid
-                break
-    if grid_uid is None:
-        raise ValueError("map has no grid")
+    grid_list = _grid_list(ents, tilemap)
+    if not grid_list:
+        raise ValueError("в файле нет гридов (MapGrid) — редактировать нечего")
+    by_uid = {g["uid"]: g for g in grid_list}
+    grid_uid = str(grid) if grid is not None and str(grid) in by_uid else max(grid_list, key=lambda g: g["tiles"])["uid"]
 
     grid_ent = ents[grid_uid]
     tiles, grid_comps, decals, chunk_order = [], [], [], []
@@ -122,7 +119,7 @@ def load(text, migrations=None):
             for key, ch in (c.get("chunks") or {}).items():
                 chunk_order.append(str(ch.get("ind", key)))
                 cx, cy = [int(v) for v in str(ch.get("ind", key)).split(",")]
-                version = int(ch.get("version", 7))
+                version = chunk_version(ch)
                 raw = base64.b64decode(ch.get("tiles", ""))
                 tiles.extend(_decode_chunk(raw, cx, cy, version, tilemap))
             c2 = {k: v for k, v in c.items() if k != "chunks"}
@@ -171,14 +168,48 @@ def load(text, migrations=None):
             others.append(o)
 
     head = {k: data.get(k) for k in ("maps", "grids", "orphans", "nullspace") if k in data}
+    # older engines wrote the component "type" key last; keep that style on save (minimal diffs)
+    type_last = any(len(c) > 1 and list(c)[-1] == "type" for c in (grid_ent.get("components") or [])[:6] if isinstance(c, dict))
     proto_order = [g.get("proto", "") for g in data.get("entities") or []]
     doc = {
         "meta": meta, "head": head, "tilemap": {str(k): v for k, v in tilemap.items()},
         "gridUid": grid_uid, "gridEnt": {"uid": grid_uid, "components": grid_comps},
         "tiles": tiles, "entities": entities, "others": others, "decals": decals, "eol": eol,
+        "gridList": grid_list, "typeLast": type_last,
         "migrated": migrated, "chunkOrder": chunk_order, "protoOrder": proto_order, "gridOrd": order.get(grid_uid, -1), "comments": comments,
     }
     return doc
+
+
+def chunk_version(ch):
+    """MapChunkSerializer: a chunk without "version" is version 1 (2-byte tile ids, no rotation byte)."""
+    try:
+        return int(ch.get("version", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _grid_list(ents, tilemap):
+    """[{uid, name, tiles}] for every entity with a MapGrid, in file order."""
+    space = {k for k, v in tilemap.items() if v == "Space"}
+    out = []
+    for uid, e in ents.items():
+        comps = e.get("components") or []
+        mg = next((c for c in comps if c.get("type") == "MapGrid"), None)
+        if mg is None:
+            continue
+        n = 0
+        for key, ch in (mg.get("chunks") or {}).items():
+            raw = base64.b64decode(ch.get("tiles", ""))
+            ver = chunk_version(ch)
+            size = 7 if ver >= 7 else 6 if ver >= 6 else 4
+            fmt = "<i" if size >= 6 else "<H"
+            for off in range(0, len(raw) - size + 1, size):
+                if str(struct.unpack_from(fmt, raw, off)[0]) not in space:
+                    n += 1
+        md = next((c for c in comps if c.get("type") == "MetaData"), {})
+        out.append({"uid": uid, "name": str(md.get("name") or ""), "tiles": n})
+    return out
 
 
 def _top_comments(text):
@@ -331,13 +362,13 @@ def save(doc, protos=None, regen_atmos=False, atmos_opts=None):
                     tf_out["rot"] = rot_str
                 wrote_rot = True
             elif k == "pos":
-                if not wrote_rot and rot_str:
+                if not wrote_rot and rot_str and "rot" not in tf:
                     tf_out["rot"] = rot_str
                     wrote_rot = True
                 tf_out["pos"] = fmt_pos(e["x"], e["y"], v)
                 wrote_pos = True
             elif k == "parent":
-                if not wrote_pos:
+                if not wrote_pos and "pos" not in tf:
                     if not wrote_rot and rot_str:
                         tf_out["rot"] = rot_str
                         wrote_rot = True
@@ -367,6 +398,11 @@ def save(doc, protos=None, regen_atmos=False, atmos_opts=None):
         return (0 if o is not None else 1, o if o is not None else 0,
                 (0, int(u)) if str(u).isdigit() else (1, str(u)))
 
+    if doc.get("typeLast"):
+        for g in groups.values():
+            for x in g:
+                x["components"] = [{**{k: v for k, v in c.items() if k != "type"}, "type": c["type"]} if isinstance(c, dict) and "type" in c else c
+                                   for c in x["components"]]
     entities = []
     for proto in _group_order(groups, doc.get("protoOrder") or []):
         ents = sorted(groups[proto], key=uid_key)
@@ -375,15 +411,21 @@ def save(doc, protos=None, regen_atmos=False, atmos_opts=None):
     count = sum(len(g["entities"]) for g in entities)
     meta = dict(doc.get("meta") or {})
     meta.setdefault("format", "7")
-    meta.setdefault("category", "Grid")
-    meta["time"] = datetime.datetime.now().strftime("%m/%d/%Y %H:%M:%S")
-    meta["entityCount"] = str(count)
     out = {"meta": meta}
     head = doc.get("head") or {}
-    out["maps"] = head.get("maps", [])
-    out["grids"] = head.get("grids", [grid_uid])
-    out["orphans"] = head.get("orphans", [grid_uid])
-    out["nullspace"] = head.get("nullspace", [])
+    if int(_f(meta.get("format"), 7)) >= 7:
+        # format 7 header; older files (format 6 stations) have none and keep it that way
+        meta.setdefault("category", "Grid")
+        meta["time"] = datetime.datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+        meta["entityCount"] = str(count)
+        out["maps"] = head.get("maps", [])
+        out["grids"] = head.get("grids", [grid_uid])
+        out["orphans"] = head.get("orphans", [grid_uid])
+        out["nullspace"] = head.get("nullspace", [])
+    else:
+        for k in ("maps", "grids", "orphans", "nullspace"):
+            if k in head:
+                out[k] = head[k]
     out["tilemap"] = new_tilemap
     out["entities"] = entities
     text = yamlio.dump(out, doc_end=True)

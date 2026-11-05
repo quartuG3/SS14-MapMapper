@@ -7,6 +7,7 @@ import { TOOLS, setTool, setMode, startPaste, pickAt, paste, rotateBrushTile } f
 import * as UI from './ui.js';
 import { key, unkey, tileOf } from './logic.js';
 import { activePreset } from './symmetry.js';
+import { loadPalettes } from './palettes.js';
 
 const $ = id => document.getElementById(id);
 const api = UI.api;
@@ -20,6 +21,7 @@ function setModel(doc) {
   S.leaks = new Set();
   S.model.on(() => { requestDraw(); scheduleSideRefresh(); });
   $('docTitle').textContent = doc.path || 'новый шаттл (не сохранён)';
+  UI.renderGridPicker(doc, loadMap);
   if (doc.migrated && Object.keys(doc.migrated).length) toast('Применены миграции прототипов: ' + Object.keys(doc.migrated).length, '', 6000);
   const unknown = new Set([...S.model.ents.values()].filter(e => !P.ents.has(e.proto)).map(e => e.proto));
   if (unknown.size) toast('Неизвестные прототипы: ' + [...unknown].slice(0, 6).join(', ') + (unknown.size > 6 ? '…' : ''), 'err', 8000);
@@ -38,16 +40,19 @@ function scheduleSideRefresh() {
   }, 250);
 }
 
-async function loadMap(path) {
+/** Open a map file; grid: uid of the grid to edit in a file with several grids (default: the largest). */
+async function loadMap(path, grid) {
   if (S.model && S.model.dirty && !confirm('Есть несохранённые изменения. Открыть другую карту?')) return;
   toast('Загрузка ' + path + '…');
   try {
-    const r = await fetch('/api/map?path=' + encodeURIComponent(path));
+    const r = await fetch('/api/map?path=' + encodeURIComponent(path) + (grid ? '&grid=' + encodeURIComponent(grid) : ''));
     const doc = await r.json();
     if (!r.ok) throw new Error(doc.error);
     setModel(doc);
-    toast(`Открыто: ${path} — ${doc.tiles.length} тайлов, ${doc.entities.length} сущностей`, 'ok');
+    const multi = (doc.gridList || []).length > 1 ? ` (грид #${doc.gridUid} из ${doc.gridList.length})` : '';
+    toast(`Открыто: ${path}${multi} — ${doc.tiles.length} тайлов, ${doc.entities.length} сущностей`, 'ok');
     localStorage.setItem('ss14mapper.last', path);
+    localStorage.setItem('ss14mapper.lastGrid', multi ? doc.gridUid : '');
   } catch (e) { toast('Ошибка загрузки: ' + e.message, 'err', 8000); }
 }
 
@@ -268,7 +273,7 @@ const KEYMAP = {};
 function bindKeys() {
   for (const [id, t] of Object.entries(TOOLS)) if (t.hotkey) KEYMAP[t.hotkey] = id;
   // russian layout aliases
-  const ru = { k: 'л', m: 'ь', w: 'ц', v: 'м', b: 'и', e: 'у', d: 'в', g: 'п', x: 'ч', i: 'ш', p: 'з', c: 'с', n: 'т', l: 'д', h: 'р' };
+  const ru = { k: 'л', m: 'ь', w: 'ц', v: 'м', b: 'и', e: 'у', d: 'в', g: 'п', x: 'ч', i: 'ш', p: 'з', c: 'с', n: 'т', l: 'д', h: 'р', u: 'г' };
   for (const [en, r] of Object.entries(ru)) if (KEYMAP[en]) KEYMAP[r] = KEYMAP[en];
 
   window.addEventListener('keydown', ev => {
@@ -314,6 +319,7 @@ function bindKeys() {
     if (code === 'Digit1') { setMode('normal'); setTool('entity'); return; }
     if (code === 'Digit2') { setMode('wiring'); return; }
     if (code === 'Digit3') { setMode('atmos'); return; }
+    if (code === 'Digit4') { setMode('disposal'); return; }
     if (code === 'KeyR') {
       if (S.tool === 'tile' || (S.tool === 'fill' && S.fillOpts.mode === 'tile')) { rotateBrushTile(ev.shiftKey ? 3 : 1); UI.renderToolOptions(); return; }
       if (S.tool === 'decal') S.decal.angle = (S.decal.angle + (ev.shiftKey ? -1 : 1) * Math.PI / 2) % (2 * Math.PI);
@@ -350,6 +356,7 @@ function bindMenu() {
       export: UI.exportDialog,
       downloadYml,
       validate: UI.validateDialog,
+      radar: UI.radarDialog,
       findReplace: UI.findReplaceDialog,
       vessel: UI.vesselDialog,
       help: UI.helpDialog,
@@ -416,16 +423,17 @@ async function main() {
     return;
   }
   $('loading').remove();
+  try { await loadPalettes(); } catch (e) { toast('Палитры не загружены: ' + e.message, 'err', 6000); }
   UI.buildPalette();
   setTool('tile');
   startAutosave();
   const qs = new URLSearchParams(location.search);
   const qmap = qs.get('map');
-  if (qmap) await loadMap(qmap);
+  if (qmap) await loadMap(qmap, qs.get('grid') || undefined);
   else if (qs.has('selftest')) await newMap('SelfTest');
   else if (!(await tryRestore())) {
     const last = localStorage.getItem('ss14mapper.last');
-    if (last) await loadMap(last);
+    if (last) await loadMap(last, localStorage.getItem('ss14mapper.lastGrid') || undefined);
     else await newMap('NewShuttle');
   }
   if (new URLSearchParams(location.search).has('debug')) {
@@ -439,9 +447,10 @@ async function main() {
     }, 4000);
   }
   if (qs.get('mode')) setMode(qs.get('mode'));
+  if ((S.radarDock.open || qs.has('dock')) && S.model) UI.radarDock.open();
   if (qs.get('inspect') && S.model) { S.inspected = qs.get('inspect'); setTool('inspect'); emit('inspect'); const e = S.model.ents.get(S.inspected); if (e) { S.view.cx = e.x; S.view.cy = e.y; } }
   if (qs.get('layers')) for (const k of qs.get('layers').split(',')) S.layers[k] = true;
-  const dlg = { export: UI.exportDialog, validate: UI.validateDialog, vessel: UI.vesselDialog }[qs.get('dialog')];
+  const dlg = { export: UI.exportDialog, validate: UI.validateDialog, vessel: UI.vesselDialog, radar: UI.radarDialog, open: () => UI.openDialog(loadMap) }[qs.get('dialog')];
   if (dlg && S.model) dlg();
   if (qs.has('selftest')) (await import('./selftest.js')).run({ loadMap, newMap });
   void size; void savePrefs; void paste; void key; void unkey;

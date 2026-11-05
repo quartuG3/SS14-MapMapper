@@ -1,10 +1,12 @@
 // Automated smoke test, run with ?selftest=1. Drives tools with synthetic pointer events.
 import { S } from './state.js';
-import { setTool, setMode, startPaste, rotateBrushTile } from './tools.js';
+import { setTool, setMode, startPaste, rotateBrushTile, TOOLS } from './tools.js';
+import * as PL from './palettes.js';
+import * as RD from './radar.js';
 import { w2s, bake } from './view.js';
 import * as UI from './ui.js';
 import { validate, stats, findReplace } from './features.js';
-import { key, openPipeEnds, cableNetwork, exposedTiles, pipeDirsOf, rotateTileVal, mirrorTileVal } from './logic.js';
+import { key, openPipeEnds, cableNetwork, exposedTiles, pipeDirsOf, rotateTileVal, mirrorTileVal, dispDirsOf, dispExit, openDisposalEnds, disposalNetwork } from './logic.js';
 import { P } from './protos.js';
 import { ent as protoOf } from './protos.js';
 
@@ -72,6 +74,35 @@ export async function run() {
     const c = entsAt(-4, -1).find(e => protoOf(e.proto)?.cable === 'MV');
     ok('wire placed', !!c);
     ok('wire network', c && cableNetwork(m, c.uid).size === 9, c && String(cableNetwork(m, c.uid).size));
+    // disposals
+    setMode('disposal');
+    ok('disposal mode tool', S.tool === 'disposal');
+    S.disposal.junction = 'junction';
+    drag([[-4, 0], [-1, 0], [-1, -2]]);
+    const disp = (x, y) => entsAt(x, y).find(e => protoOf(e.proto)?.disp !== undefined);
+    const dt = disp(-4, 0), db = disp(-1, 0), ds = disp(-3, 0);
+    ok('disposal trunk', dt && dt.proto === 'DisposalTrunk' && dispDirsOf(dt) === 4, dt && `${dt.proto} ${dispDirsOf(dt)}`);
+    ok('disposal straight', ds && ds.proto === 'DisposalPipe' && dispDirsOf(ds) === 12, ds && `${ds.proto} ${dispDirsOf(ds)}`);
+    ok('disposal bend', db && db.proto === 'DisposalBend' && dispDirsOf(db) === (8 | 2), db && `${db.proto} ${dispDirsOf(db)}`);
+    ok('disposal no open ends', openDisposalEnds(m).length === 0, String(openDisposalEnds(m).length));
+    drag([[-2, 0], [-2, 1]]);
+    const dj = disp(-2, 0);
+    ok('disposal junction', dj && protoOf(dj.proto).dispKind === 'junction' && dispDirsOf(dj) === (1 | 4 | 8), dj && `${dj.proto} ${dispDirsOf(dj)}`);
+    S.hoverTile = [-2, 0];
+    const ex0 = dispExit(dj.rot);
+    TOOLS.disposal.onKey({ key: 'r', shiftKey: false });
+    const dj2 = disp(-2, 0);
+    ok('disposal cycle exit', dj2 && dispDirsOf(dj2) === (1 | 4 | 8) && dispExit(dj2.rot) !== ex0, dj2 && `${dj2.proto} exit ${dispExit(dj2.rot)} was ${ex0}`);
+    TOOLS.disposal.onKey({ key: 't', shiftKey: false });
+    const dj3 = disp(-2, 0);
+    ok('disposal cycle kind', dj3 && protoOf(dj3.proto).dispKind === 'router' && dispDirsOf(dj3) === (1 | 4 | 8), dj3 && dj3.proto);
+    drag([[-2, -1], [-2, 0]]);
+    ok('disposal no fourway', dispDirsOf(disp(-2, 0)) === (1 | 4 | 8) && !disp(-2, -1), String(dispDirsOf(disp(-2, 0))));
+    const net = disposalNetwork(m, disp(-4, 0).uid);
+    ok('disposal network', net.size === 7, String(net.size));
+    click(-2, 1, { button: 2 });
+    const dr = disp(-2, 0);
+    ok('disposal erase refit', dr && dr.proto === 'DisposalPipe' && dispDirsOf(dr) === 12, dr && `${dr.proto} ${dispDirsOf(dr)}`);
     setMode('normal');
     // decal
     setTool('decal'); S.sel.decal = 'BrickTileSteelLineN';
@@ -87,6 +118,14 @@ export async function run() {
     click(-4, 3);
     const mb = entsAt(4, 3).find(e => e.proto === 'GasPipeBend');
     ok('mirror pipe bend', mb && pipeDirsOf(mb) === (2 | 4), mb && String(pipeDirsOf(mb)));
+    S.sel.entity = 'DisposalBend'; S.rotSteps = 0;
+    click(-5, 2);
+    const mdb = entsAt(5, 2).find(e => e.proto === 'DisposalBend');
+    ok('mirror disposal bend', mdb && dispDirsOf(mdb) === (2 | 4), mdb && String(dispDirsOf(mdb)));
+    S.sel.entity = 'DisposalJunction';
+    click(-5, 1);
+    const mdj = entsAt(5, 1).find(e => e.proto.startsWith('DisposalJunction'));
+    ok('mirror disposal junction', mdj && mdj.proto === 'DisposalJunctionFlipped' && dispDirsOf(mdj) === (1 | 2 | 4), mdj && `${mdj.proto} ${dispDirsOf(mdj)}`);
     setTool('tile'); S.sel.tile = 'FloorWood';
     click(-4, -2);
     ok('mirror tile', m.getTile(4, -2)?.[0] === 'FloorWood', m.getTile(4, -2)?.[0]);
@@ -301,12 +340,86 @@ export async function run() {
     ok('validate', issues.length > 0, issues.filter(i => i.sev === 'err').map(i => i.msg).slice(0, 3).join('; '));
     const st = stats(m);
     ok('stats', st.ents === m.ents.size);
+    // render data: doors sort above fans, fans flagged, vents keep their body under floors, blips/docks indexed
+    ok('door draw depth', (P.ents.get('Airlock')?.dd ?? 0) === 7 && P.ents.get('AtmosDeviceFanDirectional')?.fan === 1, String(P.ents.get('Airlock')?.dd));
+    ok('subfloor visible layers', P.ents.get('GasVentPump')?.sfv === 1 && !P.ents.get('GasPipeStraight')?.sfv);
+    ok('radar blip proto', P.ents.get('ComputerShuttle')?.blip?.shape === 'Square', JSON.stringify(P.ents.get('ComputerShuttle')?.blip));
+    // mass scanner
+    const edges = RD.gridEdges(m);
+    ok('radar edges', edges.length > 0 && edges.length < m.tiles.size * 4, `${edges.length} edges / ${m.tiles.size} tiles`);
+    const rcv = document.createElement('canvas'); rcv.width = rcv.height = 300;
+    const rr = RD.drawRadar(rcv.getContext('2d'), 300, 300, { ...S.radar, shield: true, range: 0 }, m);
+    ok('radar draw', rr.range >= 16 && rcv.getContext('2d').getImageData(150, 150, 1, 1).data[3] === 255, `range=${rr.range}`);
+    // pinned scanner mini window: open, drag by the header, expand settings, close
+    const dock0 = { ...S.radarDock };
+    S.radarDock.x = 40; S.radarDock.y = 40; S.radarDock.expanded = false;
+    UI.radarDock.open();
+    const dock = document.getElementById('radarDock');
+    const dcv = dock && dock.querySelector('canvas');
+    ok('radar dock open', dock && dock.style.display !== 'none' && dcv.width > 0 && dcv.getContext('2d').getImageData(dcv.width / 2, dcv.height / 2, 1, 1).data[3] === 255);
+    const head = dock.querySelector('.fp-head'), hr = head.getBoundingClientRect();
+    head.dispatchEvent(new PointerEvent('pointerdown', { clientX: hr.left + 20, clientY: hr.top + 5, button: 0, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: hr.left + 80, clientY: hr.top + 35 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: hr.left + 80, clientY: hr.top + 35 }));
+    ok('radar dock drag', S.radarDock.x === 100 && S.radarDock.y === 70 && dock.style.left === '100px', `${S.radarDock.x},${S.radarDock.y}`);
+    head.querySelector('button').click();
+    ok('radar dock expand', S.radarDock.expanded && dock.querySelector('.radar-controls').style.display !== 'none');
+    [...head.querySelectorAll('button')].pop().click();
+    ok('radar dock close', dock.style.display === 'none' && !S.radarDock.open);
+    Object.assign(S.radarDock, dock0);
+    ok('radar colors', RD.cssColor('CornflowerBlue') === '#6495ed' && RD.cssColor('#03f8fc', 0.8) === 'rgba(3,248,252,0.8)');
     const cv = await bake({ px: 16, hideSubfloor: true, bg: 'transparent' });
     ok('bake', cv.width > 0 && cv.height > 0, `${cv.width}x${cv.height}`);
     // save round trip (no write)
     const text = await UI.api.post('/api/save', { doc: m.toDoc(), write: false, regenAtmos: true, atmos: { mix: 'air', exposedVacuum: true } });
     ok('save yml', typeof text === 'string' && text.includes('GridAtmosphere') && text.includes('proto: GasPipeBend'), `${text.length} bytes`);
     ok('save tilemap', /tilemap:\n(.*\n)*?\s+\d+: FloorSteel/.test(text.replace(/\r/g, '')));
+    // custom palettes: save, reload, export/import format, rename, delete
+    const palBefore = S.palettes.length, act0 = S.palOpts.active;
+    const pal = { file: null, name: PL.uniqueName('selftest palette'), items: [{ kind: 'tile', id: 'FloorSteel' }, { kind: 'entity', id: 'DisposalTrunk' }, { kind: 'decal', id: 'BrickTileSteelLineN' }] };
+    S.palettes.push(pal);
+    await PL.savePalette(pal);
+    await PL.loadPalettes();
+    const back = S.palettes.find(p => p.file === pal.file);
+    ok('palette saved', back && back.items.length === 3 && S.palettes.length === palBefore + 1, back && back.file);
+    const re = PL.palettesFromImport(PL.bundleToFile([back]), 'x')[0];
+    ok('palette export roundtrip', re.name === back.name && re.items.length === 3);
+    PL.setActivePalette(back);
+    UI.setPalKind('custom');
+    const shownItems = document.querySelectorAll('#palGrid .pi').length;
+    ok('palette view', shownItems === 3 && document.querySelectorAll('#palGrid .pi.inpal').length === 3 && S.palKind !== 'custom', String(shownItems));
+    UI.setPalKind('tile');
+    back.name = PL.uniqueName('selftest palette renamed', back);
+    const oldFile = back.file;
+    await PL.savePalette(back);
+    await PL.loadPalettes();
+    ok('palette rename', !S.palettes.some(p => p.file === oldFile) && S.palettes.some(p => p.name === back.name));
+    await PL.deletePalette(S.palettes.find(p => p.name === back.name));
+    await PL.loadPalettes();
+    ok('palette delete', S.palettes.length === palBefore, String(S.palettes.length));
+    S.palOpts.active = act0;
+    // user shuttles: upload (+ overwrite prompt), list, open, delete
+    const ymlName = 'selftest-upload-' + Date.now() + '.yml';
+    const up = await UI.uploadMaps([new File([text], ymlName)]);
+    ok('user upload', up.length === 1 && up[0] === 'user/' + ymlName, up.join());
+    const um = await UI.api.get('/api/usermaps');
+    ok('user list', um.some(x => x.path === 'user/' + ymlName && x.cat === 'Grid'));
+    const ud = await UI.api.get('/api/map?path=' + encodeURIComponent('user/' + ymlName));
+    ok('user open', ud.tiles.length === m.tiles.size, `${ud.tiles.length}/${m.tiles.size}`);
+    const bad = await UI.uploadMaps([new File(['hello: world'], 'notamap.yml')]);
+    ok('user upload rejects junk', bad.length === 0);
+    await UI.api.post('/api/usermap/delete', { path: 'user/' + ymlName });
+    ok('user delete', !(await UI.api.get('/api/usermaps')).some(x => x.path === 'user/' + ymlName));
+    // whole maps of the build: stations, several grids, format 6
+    const all = await UI.api.get('/api/maps');
+    ok('build maps listed', all.some(x => x.cat === 'Map') && all.some(x => x.format === 6) && all.some(x => x.cat === 'Grid'), `${all.length} files`);
+    const multi = all.find(x => x.path === 'Maps/bagel.yml');
+    if (multi) {
+      const d1 = await UI.api.get('/api/map?path=Maps/bagel.yml');
+      const other = d1.gridList.find(g => g.uid !== d1.gridUid);
+      const d2 = other && await UI.api.get('/api/map?path=Maps/bagel.yml&grid=' + other.uid);
+      ok('grid select', d1.gridList.length > 1 && d2 && d2.gridUid === other.uid && d2.tiles.length === other.tiles, `${d1.gridList.map(g => g.uid + ':' + g.tiles).join(' ')}`);
+    }
     await sleep(300);
     // open a real map and run validator/bake
   } catch (e) {
