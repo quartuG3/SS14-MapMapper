@@ -22,6 +22,7 @@ function setModel(doc) {
   S.model.on(() => { requestDraw(); scheduleSideRefresh(); });
   $('docTitle').textContent = doc.path || 'новый шаттл (не сохранён)';
   UI.renderGridPicker(doc, loadMap);
+  if (doc.renumbered && doc.renumbered.length) toast(`В файле повторялись uid: ${doc.renumbered.length} сущностей получили новые uid (иначе они потерялись бы при сохранении)`, 'err', 10000);
   if (doc.migrated && Object.keys(doc.migrated).length) toast('Применены миграции прототипов: ' + Object.keys(doc.migrated).length, '', 6000);
   const unknown = new Set([...S.model.ents.values()].filter(e => !P.ents.has(e.proto)).map(e => e.proto));
   if (unknown.size) toast('Неизвестные прототипы: ' + [...unknown].slice(0, 6).join(', ') + (unknown.size > 6 ? '…' : ''), 'err', 8000);
