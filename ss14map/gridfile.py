@@ -97,13 +97,30 @@ def load(text, migrations=None, grid=None):
     proto_of = {}
     ents = {}
     order = {}
-    for group in data.get("entities") or []:
+    grp_of = {}       # uid -> occurrence of its proto group (some files list one proto in several groups)
+    proto_order = []  # group keys in file order: proto, or proto + GROUP_SEP + occurrence
+    seen_groups = {}
+    renumbered = []   # [old, new]: broken files repeat uids, the copies get free ones instead of being lost
+    groups_in = data.get("entities") or []
+    next_uid = 1 + max([int(e.get("uid")) for g in groups_in for e in (g.get("entities") or [])
+                        if str(e.get("uid")).lstrip("-").isdigit()] + [0])
+    for group in groups_in:
         proto = group.get("proto", "")
+        k = seen_groups.get(proto, 0)
+        seen_groups[proto] = k + 1
+        proto_order.append(group_key(proto, k))
         for e in group.get("entities") or []:
             uid = str(e.get("uid"))
+            if uid in ents:
+                renumbered.append([uid, str(next_uid)])
+                e = {**e, "uid": str(next_uid)}
+                uid = str(next_uid)
+                next_uid += 1
             ents[uid] = e
             proto_of[uid] = proto
             order[uid] = len(order)
+            if k:
+                grp_of[uid] = k
 
     grid_list = _grid_list(ents, tilemap)
     if not grid_list:
@@ -159,9 +176,13 @@ def load(text, migrations=None, grid=None):
             if ex:
                 ent["ex"] = ex
                 ent["korder"] = korder
+            if uid in grp_of:
+                ent["grp"] = grp_of[uid]
             entities.append(ent)
         else:
             o = {"uid": uid, "proto": proto, "components": comps, "ord": order[uid]}
+            if uid in grp_of:
+                o["grp"] = grp_of[uid]
             if ex:
                 o["ex"] = ex
                 o["korder"] = korder
@@ -170,15 +191,22 @@ def load(text, migrations=None, grid=None):
     head = {k: data.get(k) for k in ("maps", "grids", "orphans", "nullspace") if k in data}
     # older engines wrote the component "type" key last; keep that style on save (minimal diffs)
     type_last = any(len(c) > 1 and list(c)[-1] == "type" for c in (grid_ent.get("components") or [])[:6] if isinstance(c, dict))
-    proto_order = [g.get("proto", "") for g in data.get("entities") or []]
     doc = {
         "meta": meta, "head": head, "tilemap": {str(k): v for k, v in tilemap.items()},
         "gridUid": grid_uid, "gridEnt": {"uid": grid_uid, "components": grid_comps},
         "tiles": tiles, "entities": entities, "others": others, "decals": decals, "eol": eol,
-        "gridList": grid_list, "typeLast": type_last,
+        "gridList": grid_list, "typeLast": type_last, "renumbered": renumbered, "gridGrp": grp_of.get(grid_uid, 0),
         "migrated": migrated, "chunkOrder": chunk_order, "protoOrder": proto_order, "gridOrd": order.get(grid_uid, -1), "comments": comments,
     }
     return doc
+
+
+GROUP_SEP = "\u0000"
+
+
+def group_key(proto, k=0):
+    """Key of a proto group; k > 0 for repeated groups of the same proto."""
+    return proto if not k else f"{proto}{GROUP_SEP}{k}"
 
 
 def chunk_version(ch):
@@ -335,7 +363,14 @@ def save(doc, protos=None, regen_atmos=False, atmos_opts=None):
         grid_comps.append(build_grid_atmosphere(doc, protos, atmos_opts or {}))
 
     groups = {}
-    grid_proto = doc.get("gridProto", "")
+    known_keys = set(doc.get("protoOrder") or [])
+
+    def gkey(proto, grp):
+        # an entity keeps its original group; clones whose proto changed fall back to the first group
+        k = group_key(proto, grp or 0)
+        return k if k in known_keys else proto
+
+    grid_proto = gkey(doc.get("gridProto", ""), doc.get("gridGrp"))
     groups.setdefault(grid_proto, []).append({"uid": int(grid_uid) if grid_uid.isdigit() else grid_uid,
                                               "components": grid_comps, "ord": doc.get("gridOrd", -1)})
     for m_uid in (doc.get("head") or {}).get("maps") or []:
@@ -384,11 +419,11 @@ def save(doc, protos=None, regen_atmos=False, atmos_opts=None):
         tf_out["parent"] = grid_uid
         comps = [_scrub(c, valid_uids) for c in e.get("comps") or []]
         comps.insert(min(int(e.get("tfIndex") or 0), len(comps)), tf_out)
-        groups.setdefault(e["proto"], []).append({"uid": _uid_val(e["uid"]), "components": comps,
+        groups.setdefault(gkey(e["proto"], e.get("grp")), []).append({"uid": _uid_val(e["uid"]), "components": comps,
                                                   "ex": e.get("ex"), "ord": e.get("ord"), "korder": e.get("korder")})
     for o in doc["others"]:
         comps = [_scrub(c, valid_uids) for c in o.get("components") or []]
-        groups.setdefault(o.get("proto", ""), []).append({"uid": _uid_val(o["uid"]), "components": comps,
+        groups.setdefault(gkey(o.get("proto", ""), o.get("grp")), []).append({"uid": _uid_val(o["uid"]), "components": comps,
                                                           "ex": o.get("ex"), "ord": o.get("ord"), "korder": o.get("korder")})
 
     def uid_key(x):
@@ -404,9 +439,9 @@ def save(doc, protos=None, regen_atmos=False, atmos_opts=None):
                 x["components"] = [{**{k: v for k, v in c.items() if k != "type"}, "type": c["type"]} if isinstance(c, dict) and "type" in c else c
                                    for c in x["components"]]
     entities = []
-    for proto in _group_order(groups, doc.get("protoOrder") or []):
-        ents = sorted(groups[proto], key=uid_key)
-        entities.append({"proto": proto, "entities": [_entity_out(x) for x in ents]})
+    for key in _group_order(groups, doc.get("protoOrder") or []):
+        ents = sorted(groups[key], key=uid_key)
+        entities.append({"proto": key.split(GROUP_SEP)[0], "entities": [_entity_out(x) for x in ents]})
 
     count = sum(len(g["entities"]) for g in entities)
     meta = dict(doc.get("meta") or {})
