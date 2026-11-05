@@ -57,7 +57,7 @@ def fmt_scalar(s):
         or s[0] == " " or s[-1] == " "
         or s == "-" or s.startswith("- ") or s.startswith(": ") or s == ":" or s.startswith("? ")
         or ": " in s or " #" in s or s.endswith(":")
-        or s in ("~",)
+        or s in ("~",) or s.startswith(("...", "---"))  # document markers
     )
     if not need:
         return s

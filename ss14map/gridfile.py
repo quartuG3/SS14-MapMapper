@@ -240,17 +240,25 @@ def _grid_list(ents, tilemap):
     return out
 
 
+INLINE = "\u0001"  # comments key prefix: original "- proto: Foo # note" line by its comment-less form
+
+
 def _top_comments(text):
-    """Column-0 comment blocks keyed by the line that follows them (e.g. "- proto: Foo")."""
+    """Column-0 comment blocks keyed by the line that follows them (e.g. "- proto: Foo"),
+    plus trailing comments of group lines ("- proto: Foo # Mono")."""
     out = {}
     pending = []
     for line in text.splitlines():
         if line.startswith("#"):
             pending.append(line)
             continue
+        key = line.rstrip()
+        if line.startswith("- proto:") and " #" in line:
+            key = line.split(" #", 1)[0].rstrip()
+            out[INLINE + key] = [line.rstrip()]
         if pending:
             if line.strip():
-                out.setdefault(line.rstrip(), []).extend(pending)
+                out.setdefault(key, []).extend(pending)
             pending = []
     if pending:
         out.setdefault("", []).extend(pending)
@@ -266,6 +274,9 @@ def _restore_comments(text, comments):
         if c:
             out.extend(c)
             comments = {k: v for k, v in comments.items() if k != line.rstrip()}  # attach once
+        inline = comments.get(INLINE + line.rstrip())
+        if inline:
+            line = inline[0]
         out.append(line)
     if comments.get(""):
         out[-1:-1] = comments[""]
