@@ -9,7 +9,7 @@ import time
 from . import yamlio
 from .ftl import Ftl
 
-CACHE_VERSION = 15
+CACHE_VERSION = 16
 
 DRAW_DEPTH = {
     "LowFloors": -20, "ThickPipe": -19, "ThickWire": -18, "ThinPipeAlt2": -17, "ThinPipeAlt1": -16, "ThinPipe": -15, "ThinWire": -14,
@@ -86,14 +86,20 @@ class ProtoIndex:
         engine = os.path.join(self.cfg.repo, "RobustToolbox", "Resources", "EnginePrototypes")
         return files + glob.glob(os.path.join(engine, "**", "*.yml"), recursive=True)
 
+    def _locale_files(self):
+        return [f for lang in dict.fromkeys(("en-US", self.cfg.locale))
+                for f in glob.glob(os.path.join(self.cfg.resources, "Locale", lang, "**", "*.ftl"), recursive=True)]
+
     def _signature(self, files):
+        # locale files count too: entity / tile names come from them
+        files = files + self._locale_files()
         mt = 0.0
         for f in files:
             try:
                 mt = max(mt, os.path.getmtime(f))
             except OSError:
                 pass
-        return (CACHE_VERSION, len(files), round(mt, 3))
+        return (CACHE_VERSION, self.cfg.locale, len(files), round(mt, 3))
 
     def _load(self):
         t0 = time.time()
@@ -171,26 +177,17 @@ class ProtoIndex:
                  f"{len(self.tiles)} tiles, {len(self.decals)} decals, {errors} errors)")
 
     def _load_locale(self):
+        # full Fluent parse: many names are references ("ent-APCBasic = { ent-BaseAPC }") or multi-line
+        prefixes = ("ent-", "tiles-", "tile-", "signal-port-name-", "dock-label-")
         loc = {}
-        for lang in ("en-US", self.cfg.locale):
-            base = os.path.join(self.cfg.resources, "Locale", lang)
-            for path in glob.glob(os.path.join(base, "**", "*.ftl"), recursive=True):
-                try:
-                    with open(path, encoding="utf-8-sig") as f:
-                        for line in f:
-                            if not line or line[0] in " \t#.-\n":
-                                continue
-                            if "=" not in line:
-                                continue
-                            k, v = line.split("=", 1)
-                            k = k.strip()
-                            v = v.strip()
-                            if not v or "{" in v:
-                                continue
-                            if k.startswith(("ent-", "tiles-", "tile-", "signal-port-name-", "dock-label-")):
-                                loc.setdefault(lang, {})[k] = v
-                except OSError:
-                    pass
+        for lang in dict.fromkeys(("en-US", self.cfg.locale)):
+            out = {}
+            for k in self.ftl.lang(lang):
+                if "." not in k and k.startswith(prefixes):
+                    v = (self.ftl.get(k, lang=lang) or "").strip()
+                    if v and "{" not in v:
+                        out[k] = v
+            loc[lang] = out
         self.locale = loc
 
     def _load_migrations(self):
@@ -262,9 +259,24 @@ class ProtoIndex:
         return out
 
     def _loc_name(self, pid, fallback):
-        ru = self.locale.get(self.cfg.locale, {}).get("ent-" + pid)
-        en = self.locale.get("en-US", {}).get("ent-" + pid)
-        return en or fallback, ru
+        # like the engine's entity loc data: the first prototype up the parent chain that has an
+        # "ent-<id>" string, unless a prototype on the way sets its own name in yaml
+        def find(lang):
+            d = self.locale.get(lang, {})
+            queue, seen = [pid], set()
+            while queue:
+                p = queue.pop(0)
+                if p in seen:
+                    continue
+                seen.add(p)
+                if "ent-" + p in d:
+                    return d["ent-" + p]
+                raw = self.raw_entities.get(p) or {}
+                if "name" in raw:
+                    return None
+                queue += [x for x in _as_list(raw.get("parent")) if isinstance(x, str)]
+            return None
+        return find("en-US") or fallback, find(self.cfg.locale)
 
     def _summarize(self, pid):
         r = self.resolve(pid)

@@ -94,6 +94,7 @@ class Ftl:
     def __init__(self, cfg):
         self.cfg = cfg
         self._langs = None
+        self.names = list(dict.fromkeys((cfg.locale, "en-US")))
         self._lock = threading.Lock()
 
     def _load(self):
@@ -101,7 +102,7 @@ class Ftl:
             if self._langs is not None:
                 return
             langs = []
-            for lang in dict.fromkeys((self.cfg.locale, "en-US")):
+            for lang in self.names:
                 d = {}
                 base = os.path.join(self.cfg.resources, "Locale", lang)
                 for path in glob.glob(os.path.join(base, "**", "*.ftl"), recursive=True):
@@ -113,21 +114,30 @@ class Ftl:
                 langs.append(d)
             self._langs = langs
 
-    def raw(self, key):
+    def lang(self, name):
+        """Raw entries of one language ({} if it is not loaded)."""
         self._load()
+        return self._langs[self.names.index(name)] if name in self.names else {}
+
+    def raw(self, key, lang=None):
+        self._load()
+        if lang is not None:
+            v = self.lang(lang).get(key)
+            if v is not None:
+                return v
         for d in self._langs:
             if key in d:
                 return d[key]
         return None
 
-    def get(self, key, _depth=0):
-        """Resolved string of "key" or "key.attr" (locale first, then en-US), None if missing."""
-        v = self.raw(key)
+    def get(self, key, _depth=0, lang=None):
+        """Resolved string of "key" or "key.attr" (lang if given, then locale, then en-US), None if missing."""
+        v = self.raw(key, lang)
         if v is None or _depth > 8:
             return v
-        return self.resolve(v, _depth)
+        return self.resolve(v, _depth, lang)
 
-    def resolve(self, v, _depth=0):
+    def resolve(self, v, _depth=0, lang=None):
         out = []
         pos = 0
         for a, b, inner in _placeables(v):
@@ -139,9 +149,9 @@ class Ftl:
                 out.append(m.group(1).encode("latin-1", "backslashreplace").decode("unicode_escape")
                            if "\\" in m.group(1) else m.group(1))
             elif "->" in t:
-                out.append(self.resolve(_default_variant(t), _depth + 1))
+                out.append(self.resolve(_default_variant(t), _depth + 1, lang))
             elif REF.match(t):
-                ref = self.get(t, _depth + 1)
+                ref = self.get(t, _depth + 1, lang)
                 out.append(ref if ref is not None else "{ " + t + " }")
             else:
                 out.append("{" + inner + "}")  # variables and functions stay as written
