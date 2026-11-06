@@ -78,7 +78,9 @@ export function buildToolbar() {
 
 // ===================================================================== tool options
 const MODE_TOOL = { wiring: 'wire', atmos: 'pipe', disposal: 'disposal' };
-const PIPE_COLORS = [['#0055CCFF', 'Подача'], ['#990000FF', 'Отходы'], ['#03FCD3FF', 'Смесь'], ['#FF1212FF', 'Плазма'], ['#FFEB3BFF', 'Азот/O₂'], ['#947507FF', 'Топливо'], ['#FFFFFFFF', 'Белый']];
+// choosing a routing option (cable kind, pipe layer/colour, junction type) means laying, not placing prototypes
+const toRouting = tool => { if (S.tool === 'entity') setTool(tool); else renderToolOptions(); };
+const PIPE_COLORS =[['#0055CCFF', 'Подача'], ['#990000FF', 'Отходы'], ['#03FCD3FF', 'Смесь'], ['#FF1212FF', 'Плазма'], ['#FFEB3BFF', 'Азот/O₂'], ['#947507FF', 'Топливо'], ['#FFFFFFFF', 'Белый']];
 function chk(label, obj, k, after) {
   return h('label', {}, h('input', { type: 'checkbox', checked: !!obj[k], onchange: e => { obj[k] = e.target.checked; savePrefs(); after && after(); requestDraw(); } }), label);
 }
@@ -150,21 +152,21 @@ export function renderToolOptions() {
   if (opts.includes('fill')) add(chk('не через стены', S.fillOpts, 'stopAtWalls'), h('span', { class: 'muted' }, `заливка: ${({ tile: 'тайл', entity: 'прототип', decal: 'декаль' })[S.palKind]} (ПКМ — стереть)`));
   if (opts.includes('erase')) add(chk('тайлы', S.eraseOpts, 'tiles'), chk('сущности', S.eraseOpts, 'ents'), chk('только верхнюю', S.eraseOpts, 'top'), chk('декали', S.eraseOpts, 'decals'));
   if (opts.includes('pipe')) {
-    const sel = h('select', { onchange: e => { S.pipe.layer = e.target.value; savePrefs(); } },
+    const sel = h('select', { onchange: e => { S.pipe.layer = e.target.value; savePrefs(); toRouting('pipe'); } },
       ...['Primary', 'Secondary', 'Tertiary'].map(l => h('option', { value: l, selected: S.pipe.layer === l }, l)));
     add(h('label', {}, 'Слой', sel));
-    for (const [c, n] of PIPE_COLORS) add(h('span', { class: 'swatch' + (S.pipe.color === c ? ' on' : ''), title: n, style: `background:${c.slice(0, 7)}`, onclick: () => { S.pipe.color = c; savePrefs(); renderToolOptions(); } }));
-    add(h('input', { type: 'color', value: S.pipe.color.slice(0, 7), title: 'Свой цвет', oninput: e => { S.pipe.color = e.target.value.toUpperCase() + 'FF'; savePrefs(); } }));
+    for (const [c, n] of PIPE_COLORS) add(h('span', { class: 'swatch' + (S.pipe.color === c ? ' on' : ''), title: n, style: `background:${c.slice(0, 7)}`, onclick: () => { S.pipe.color = c; savePrefs(); toRouting('pipe'); } }));
+    add(h('input', { type: 'color', value: S.pipe.color.slice(0, 7), title: 'Свой цвет', oninput: e => { S.pipe.color = e.target.value.toUpperCase() + 'FF'; savePrefs(); }, onchange: () => { if (S.tool === 'entity') setTool('pipe'); } }));
   }
   if (opts.includes('disposal')) {
     const names = { junction: 'Развилка', router: 'Маршрутизатор', signal: 'Сигнальный' };
     const tips = { junction: 'DisposalJunction / Flipped / YJunction', router: 'DisposalRouter: предметы с метками сортировщика уходят вбок', signal: 'DisposalSignalRouter: направление переключается сигналом' };
     add(h('span', { title: 'Какой прототип ставить, когда к трубе подводится третья ветка' }, 'Новые развилки:'),
-      h('div', { class: 'seg' }, ...Object.entries(names).map(([k, n]) => h('button', { class: S.disposal.junction === k ? 'on' : '', title: tips[k], onclick: () => { S.disposal.junction = k; savePrefs(); renderToolOptions(); } }, n))),
+      h('div', { class: 'seg' }, ...Object.entries(names).map(([k, n]) => h('button', { class: S.disposal.junction === k ? 'on' : '', title: tips[k], onclick: () => { S.disposal.junction = k; savePrefs(); toRouting('disposal'); } }, n))),
       h('span', { class: 'muted' }, 'над трубой: R — выход развилки, T — тип; крестовин нет'));
   }
   if (opts.includes('wire')) {
-    const seg = h('div', { class: 'seg' }, ...['HV', 'MV', 'LV'].map(k => h('button', { class: S.wire.kind === k ? 'on' : '', onclick: () => { S.wire.kind = k; savePrefs(); renderToolOptions(); } }, k)));
+    const seg = h('div', { class: 'seg' }, ...['HV', 'MV', 'LV'].map(k => h('button', { class: S.wire.kind === k ? 'on' : '', onclick: () => { S.wire.kind = k; savePrefs(); toRouting('wire'); } }, k)));
     add(seg, h('span', { class: 'muted' }, 'HV — генераторы/SMES, MV — подстанция→APC, LV — APC→потребители'));
   }
   if (opts.includes('random')) {
@@ -223,7 +225,7 @@ function deviceBar(add, mode) {
     for (const p of list) {
       grp.append(h('img', { src: A.iconUrl(p.id), title: displayName('entity', p.id) + '\n' + p.id,
         style: 'width:24px;height:24px;image-rendering:pixelated;cursor:pointer;border-radius:3px;' + (S.sel.entity === p.id && S.tool === 'entity' ? 'outline:2px solid var(--acc)' : ''),
-        onclick: () => { S.sel.entity = p.id; setTool('entity'); remember(p.id); } }));
+        onclick: () => { S.sel.entity = p.id; setTool(TL.routingToolFor(p.id) || 'entity'); remember(p.id); } }));
     }
     bar.append(grp);
   }
@@ -411,7 +413,7 @@ function selectItem(kind, id, ev) {
   S.sel[kind] = id;
   if (kind === 'tile') S.tileOpts.rm = 0;
   savePrefs();
-  const tool = kind === 'tile' ? 'tile' : kind === 'decal' ? 'decal' : 'entity';
+  const tool = kind === 'tile' ? 'tile' : kind === 'decal' ? 'decal' : TL.routingToolFor(id) || 'entity';
   if (!['fill', 'random', 'select', 'wand'].includes(S.tool) || kind !== S.palKind) setTool(tool);
   S.palKind = kind;
   markSelected(kind, id);

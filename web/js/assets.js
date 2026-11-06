@@ -6,8 +6,21 @@ let onLoad = () => {};
 let inflight = 0;
 const queue = [];
 const MAX_INFLIGHT = 12;
+// progress of the current loading batch; reset once the queue drains
+let batchTotal = 0, batchDone = 0;
+let onProgress = () => {};
 
 export function setOnLoad(fn) { onLoad = fn; }
+/** fn(done, total) is called whenever an image is queued or finished; total = 0 means idle. */
+export function setOnProgress(fn) { onProgress = fn; }
+function enqueue(k, url) {
+  const p = new Promise(res => queue.push([k, url, res]));
+  cache.set(k, p);
+  batchTotal++;
+  onProgress(batchDone, batchTotal);
+  pump();
+  return p;
+}
 
 function pump() {
   while (inflight < MAX_INFLIGHT && queue.length) {
@@ -23,6 +36,9 @@ function pump() {
       cache.set(k, v);
       inflight--;
       resolve(v);
+      batchDone++;
+      if (!inflight && !queue.length) batchDone = batchTotal = 0;
+      onProgress(batchDone, batchTotal);
       onLoad();
       pump();
     });
@@ -32,18 +48,13 @@ function pump() {
 function load(k, url) {
   const c = cache.get(k);
   if (c !== undefined) return c instanceof Promise ? undefined : c;
-  const p = new Promise(res => queue.push([k, url, res]));
-  cache.set(k, p);
-  pump();
+  enqueue(k, url);
   return undefined;
 }
 function loadAsync(k, url) {
   const c = cache.get(k);
   if (c !== undefined) return c instanceof Promise ? c : Promise.resolve(c);
-  const p = new Promise(res => queue.push([k, url, res]));
-  cache.set(k, p);
-  pump();
-  return p;
+  return enqueue(k, url);
 }
 
 const enc = encodeURIComponent;

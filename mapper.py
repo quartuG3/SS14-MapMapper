@@ -8,6 +8,7 @@ import json
 import mimetypes
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -108,35 +109,56 @@ def vessel_for(map_rel):
 
 
 _enum_cache = {}
+_enum_lock = threading.Lock()
+ENUM_NAMES = ("VesselSize", "VesselClass", "VesselEngine", "ShipyardConsoleUiKey")
+ENUM_ROOTS = ("Content.Shared", "Content.Server", "Content.Client")
+
+
+def enum_source_files():
+    """C# files that may declare the vessel enums. git grep answers in a fraction of a second; reading every .cs
+    file of the repo takes up to a minute on a cold disk, so that is only the fallback (no git / not a checkout)."""
+    try:
+        r = subprocess.run(["git", "grep", "-l", "-E", r"enum\s+(" + "|".join(ENUM_NAMES) + r")\b", "--",
+                            *(root + "/*.cs" for root in ENUM_ROOTS)],
+                           cwd=cfg.repo, capture_output=True, text=True, encoding="utf-8", timeout=30,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode in (0, 1):  # 1: nothing found
+            return [os.path.join(cfg.repo, p) for p in r.stdout.splitlines() if p]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    out = []
+    for root in ENUM_ROOTS:
+        for dirpath, _, files in os.walk(os.path.join(cfg.repo, root)):
+            out += [os.path.join(dirpath, fn) for fn in files if fn.endswith(".cs")]
+    return out
 
 
 def vessel_enums():
     """Parse VesselSize / VesselClass / VesselEngine / ShipyardConsoleUiKey from the repo C# sources,
     plus values actually used by vessel prototypes."""
-    if _enum_cache:
-        return _enum_cache
-    names = ("VesselSize", "VesselClass", "VesselEngine", "ShipyardConsoleUiKey")
-    found = {n: [] for n in names}
-    rx = re.compile(r"enum\s+(" + "|".join(names) + r")\b[^{]*\{(.*?)\}", re.S)
-    for root in ("Content.Shared", "Content.Server", "Content.Client"):
-        base = os.path.join(cfg.repo, root)
-        for dirpath, _, files in os.walk(base):
-            for fn in files:
-                if not fn.endswith(".cs"):
-                    continue
-                try:
-                    with open(os.path.join(dirpath, fn), encoding="utf-8-sig", errors="replace") as f:
-                        text = f.read()
-                except OSError:
-                    continue
-                if "enum Vessel" not in text and "enum ShipyardConsoleUiKey" not in text:
-                    continue
-                for m in rx.finditer(text):
-                    body = re.sub(r"//[^\n]*|/\*.*?\*/|\[[^\]]*\]", "", m.group(2), flags=re.S)
-                    for item in body.split(","):
-                        item = item.strip().split("=")[0].strip()
-                        if re.fullmatch(r"[A-Za-z_]\w*", item) and item not in found[m.group(1)]:
-                            found[m.group(1)].append(item)
+    with _enum_lock:  # concurrent first requests wait for one scan instead of each starting their own
+        if not _enum_cache:
+            _enum_cache.update(_scan_vessel_enums())
+    return _enum_cache
+
+
+def _scan_vessel_enums():
+    found = {n: [] for n in ENUM_NAMES}
+    rx = re.compile(r"enum\s+(" + "|".join(ENUM_NAMES) + r")\b[^{]*\{(.*?)\}", re.S)
+    for path in enum_source_files():
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            continue
+        if "enum Vessel" not in text and "enum ShipyardConsoleUiKey" not in text:
+            continue
+        for m in rx.finditer(text):
+            body = re.sub(r"//[^\n]*|/\*.*?\*/|\[[^\]]*\]", "", m.group(2), flags=re.S)
+            for item in body.split(","):
+                item = item.strip().split("=")[0].strip()
+                if re.fullmatch(r"[A-Za-z_]\w*", item) and item not in found[m.group(1)]:
+                    found[m.group(1)].append(item)
     used = {"category": set(), "group": set(), "class": set(), "engine": set()}
     for v in protos.vessels.values():
         for k in used:
@@ -147,13 +169,12 @@ def vessel_enums():
     def merge(enum_vals, extra):
         low = {x.lower() for x in enum_vals}
         return [x for x in enum_vals if x != "All"] + sorted(x for x in extra if x.lower() not in low)
-    _enum_cache.update({
+    return {
         "category": merge(found["VesselSize"], used["category"]),
         "group": merge(found["ShipyardConsoleUiKey"], used["group"]),
         "class": merge(found["VesselClass"], used["class"]),
         "engine": merge(found["VesselEngine"], used["engine"]),
-    })
-    return _enum_cache
+    }
 
 
 def preset_path(kind, name):
@@ -573,6 +594,8 @@ def main():
     url = f"http://localhost:{cfg.port}/"
     print(f"[mapper] repo: {cfg.repo}")
     print(f"[mapper] listening on {url}")
+    # warm the vessel enums (the vessel and pipelines dialogs wait for them) while the user picks a map
+    threading.Thread(target=vessel_enums, daemon=True).start()
     if "--no-browser" not in sys.argv:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

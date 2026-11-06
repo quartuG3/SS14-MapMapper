@@ -10,9 +10,24 @@ import { key, unkey, tileOf } from './logic.js';
 import { activePreset } from './symmetry.js';
 import { loadPalettes } from './palettes.js';
 import { pipelinesDialog } from './pipelines.js';
+import { setOnProgress } from './assets.js';
 
 const $ = id => document.getElementById(id);
 const api = UI.api;
+
+// ===================================================================== load bar
+// Bottom progress bar: indeterminate while the map file is fetched/parsed, then done/total of sprite requests.
+let mapLoading = false, spritesDone = 0, spritesTotal = 0;
+function renderLoadBar() {
+  const bar = $('loadBar'), label = $('stLoad');
+  const busy = mapLoading, sprites = spritesTotal > 0;
+  bar.classList.toggle('hidden', !busy && !sprites);
+  bar.classList.toggle('busy', busy);
+  bar.firstElementChild.style.width = busy ? '' : (sprites ? (100 * spritesDone / spritesTotal).toFixed(1) + '%' : '0');
+  label.textContent = busy ? 'Загрузка карты…' : sprites ? `Загрузка спрайтов: ${spritesDone}/${spritesTotal}` : '';
+}
+setOnProgress((done, total) => { spritesDone = done; spritesTotal = total; renderLoadBar(); });
+function setMapLoading(v) { mapLoading = v; renderLoadBar(); }
 
 // ===================================================================== documents
 function setModel(doc) {
@@ -47,6 +62,7 @@ function scheduleSideRefresh() {
 async function loadMap(path, grid) {
   if (S.model && S.model.dirty && !confirm('Есть несохранённые изменения. Открыть другую карту?')) return;
   toast('Загрузка ' + path + '…');
+  setMapLoading(true);
   try {
     const r = await fetch('/api/map?path=' + encodeURIComponent(path) + (grid ? '&grid=' + encodeURIComponent(grid) : ''));
     const doc = await r.json();
@@ -57,6 +73,7 @@ async function loadMap(path, grid) {
     localStorage.setItem('ss14mapper.last', path);
     localStorage.setItem('ss14mapper.lastGrid', multi ? doc.gridUid : '');
   } catch (e) { toast('Ошибка загрузки: ' + e.message, 'err', 8000); }
+  finally { setMapLoading(false); }
 }
 
 async function newMap(name) {

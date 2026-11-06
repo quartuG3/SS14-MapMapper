@@ -85,7 +85,12 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 3px;
 .pi:hover { border-color: #56607a; }
 #palInfo { min-height: 34px; font-size: 12px; border-top: 1px solid var(--line); padding-top: 4px; word-break: break-all; }
 
-#status { grid-column: 1 / 4; display: flex; gap: 18px; align-items: center; padding: 0 10px; background: var(--bg2); border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; }
+#status { grid-column: 1 / 4; display: flex; gap: 18px; align-items: center; padding: 0 10px; background: var(--bg2); border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; position: relative; }
+#stLoad { color: var(--acc); }
+#loadBar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--bg3); overflow: hidden; }
+#loadBar > div { height: 100%; width: 0; background: var(--acc); transition: width .15s; }
+#loadBar.busy > div { width: 30%; transition: none; animation: loadbar-slide 1.1s linear infinite; }
+@keyframes loadbar-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 #stMsg { margin-left: auto; color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
 
 #modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: center; justify-content: center; z-index: 50; }

@@ -7,7 +7,7 @@ import { w2s, requestDraw, setToolOverlay } from './view.js';
 import * as L from './links.js';
 import {
   key, unkey, tileOf, line4, lpath, rotSteps, stepsToRot, normAngle, HALF_PI, cableNetwork, pipeNetwork,
-  pipeLayerOf, entLayer, rotateTileVal, disposalNetwork, isDisposal,
+  pipeLayerOf, entLayer, rotateTileVal, disposalNetwork, isDisposal, plainPipeBase,
 } from './logic.js';
 
 const M = () => S.model;
@@ -777,6 +777,16 @@ export function setTool(id) {
   setToolOverlay(t.overlay ? c => t.overlay(c) : null);
   emit('tool', id);
   requestDraw();
+}
+/** Plain pipe / tube / cable prototypes are laid by their routing tool (auto-fitted), not placed one by one:
+ *  returns 'pipe' | 'disposal' | 'wire' (and switches the cable kind) or null. */
+export function routingToolFor(id) {
+  const p = P.ents.get(id);
+  if (!p) return null;
+  if (plainPipeBase(id)) return 'pipe';
+  if (['transit', 'bend', 'entry'].includes(p.dispKind)) return 'disposal';
+  if (p.cable && ['HV', 'MV', 'LV'].includes(p.cable)) { S.wire.kind = p.cable; return 'wire'; }
+  return null;
 }
 // keepTool: called by the wire/pipe/disposal tools themselves, which must stay active
 export function setMode(m, keepTool) {
