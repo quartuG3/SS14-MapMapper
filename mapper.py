@@ -197,6 +197,55 @@ def list_presets(kind):
     return out
 
 
+def pipeline_path(name):
+    name = re.sub(r"\.js$", "", os.path.basename(str(name).replace("\\", "/")), flags=re.I)
+    name = re.sub(r"[^\w\-а-яА-ЯёЁ ()]", "_", name).strip() or "pipeline"
+    return os.path.join(cfg.pipeline_dir, name + ".js")
+
+
+def list_pipelines():
+    out = []
+    for fn in sorted(os.listdir(cfg.pipeline_dir), key=str.lower):
+        full = os.path.join(cfg.pipeline_dir, fn)
+        if fn.endswith(".js") and os.path.isfile(full):
+            out.append({"file": fn[:-3], "size": os.path.getsize(full), "mtime": os.path.getmtime(full)})
+    return out
+
+
+RES_TEXT_EXT = (".yml", ".yaml", ".ftl", ".txt", ".json", ".toml")
+
+
+def proto_raw(kind, pid):
+    """A prototype as written in its file (not merged with parents): {id, type, file, data, parents}."""
+    if kind == "entity":
+        d = protos.raw_entities.get(pid)
+        file = protos.entity_files.get(pid)
+    elif kind == "vessel":
+        d = protos.vessels.get(pid)
+        file = d and d.get("_file")
+        d = d and {k: v for k, v in d.items() if k != "_file"}
+    elif kind == "tile":
+        d, file = protos.tiles.get(pid), None
+    elif kind == "decal":
+        d, file = protos.decals.get(pid), None
+    else:
+        raise ValueError(f"unknown prototype type {kind!r}")
+    if d is None:
+        return None
+    chain, seen = [], set()
+    if kind == "entity":
+        stack = [x for x in (d.get("parent") if isinstance(d.get("parent"), list) else [d.get("parent")]) if isinstance(x, str)]
+        while stack:  # every ancestor, nearest first
+            p = stack.pop(0)
+            if p in seen:
+                continue
+            seen.add(p)
+            chain.append(p)
+            pd = protos.raw_entities.get(p) or {}
+            stack += [x for x in (pd.get("parent") if isinstance(pd.get("parent"), list) else [pd.get("parent")]) if isinstance(x, str)]
+    return {"id": pid, "type": kind, "file": file and "Prototypes/" + file, "data": d, "parents": chain}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -317,6 +366,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(list_presets(q["kind"]))
             if route == "palettes":
                 return self._json(list_palettes())
+            if route == "pipelines":
+                return self._json(list_pipelines())
+            if route == "pipeline":
+                with open(pipeline_path(q["name"]), encoding="utf-8-sig") as f:
+                    return self._send(200, f.read(), "text/javascript; charset=utf-8")
+            if route == "protoraw":
+                res = proto_raw(q.get("type", "entity"), q["id"])
+                return self._json(res) if res else self._err("unknown prototype", 404)
+            if route == "protoresolved":
+                res = protos.resolve(q["id"])
+                return self._json(res) if res else self._err("unknown prototype", 404)
+            if route == "restext":
+                full = cfg.res_path(q["path"])
+                if not full.lower().endswith(RES_TEXT_EXT) or not os.path.isfile(full):
+                    return self._err("not found", 404)
+                with open(full, encoding="utf-8-sig", errors="replace") as f:
+                    return self._send(200, f.read(), "text/plain; charset=utf-8")
             if route == "autosave":
                 p = os.path.join(cfg.autosave_dir, "autosave.json")
                 if not os.path.exists(p):
@@ -426,6 +492,23 @@ class Handler(BaseHTTPRequestHandler):
                 if os.path.exists(p):
                     os.remove(p)
                 return self._json({"ok": True})
+            if route == "locraw":
+                # raw Fluent values of keys and their attributes ("ent-X", "ent-X.desc") in one language
+                d = protos.ftl.lang(body["lang"])
+                want = set(body["keys"])
+                return self._json({k: v for k, v in d.items() if k in want or k.split(".", 1)[0] in want})
+            if route == "pipeline":
+                full = pipeline_path(body["name"])
+                if os.path.exists(full) and not body.get("overwrite"):
+                    return self._json({"exists": True, "file": os.path.basename(full)[:-3]}, 409)
+                with open(full, "w", encoding="utf-8", newline="") as f:
+                    f.write(body["text"])
+                return self._json({"ok": True, "file": os.path.basename(full)[:-3]})
+            if route == "pipeline/delete":
+                full = pipeline_path(body["name"])
+                if os.path.exists(full):
+                    os.remove(full)
+                return self._json({"ok": True})
             if route == "autosave":
                 with open(os.path.join(cfg.autosave_dir, "autosave.json"), "w", encoding="utf-8") as f:
                     json.dump(body, f, ensure_ascii=False)
@@ -458,10 +541,14 @@ class Handler(BaseHTTPRequestHandler):
         if not full.startswith(WEB_DIR) or not os.path.isfile(full):
             return self._err("not found", 404)
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        headers = None
         if full.endswith(".js"):
             ctype = "text/javascript; charset=utf-8"
+        if rel.replace("\\", "/") == "js/pipeline-worker.js":
+            # the sandbox of user pipelines: no network, only the blob module of the pipeline itself
+            headers = {"Content-Security-Policy": "default-src 'none'; script-src blob:"}
         with open(full, "rb") as f:
-            self._send(200, f.read(), ctype)
+            self._send(200, f.read(), ctype, headers)
 
 
 class Server(ThreadingHTTPServer):

@@ -10,6 +10,7 @@ import { validate, stats, findReplace } from './features.js';
 import { key, openPipeEnds, cableNetwork, exposedTiles, pipeDirsOf, rotateTileVal, mirrorTileVal, dispDirsOf, dispExit, openDisposalEnds, disposalNetwork } from './logic.js';
 import { P } from './protos.js';
 import { ent as protoOf } from './protos.js';
+import * as PP from './pipelines.js';
 
 const log = [];
 const ok = (name, cond, extra = '') => log.push(`${cond ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`);
@@ -30,9 +31,113 @@ function drag(path, opts) {
 const click = (x, y, opts) => drag([[x, y]], opts);
 const entsAt = (x, y) => S.model.entsAt(x, y).map(u => S.model.ents.get(u));
 
+// pipelines: sandboxed worker, ops applied as one undo step (alone: ?selftest=pipelines)
+async function pipelineTests() {
+  const m = S.model;
+  const srcApi = `export const meta = { name: 't', params: { p: { type: 'proto' } } };
+export default async function run(ctx) {
+const g = ctx.grid;
+g.setTile(40, 40, 'FloorSteel');
+const a = g.place(ctx.params.p, 40, 40, { rot: Math.PI / 2 });
+const b = g.place('WallReinforced', 41, 40);
+g.replace(a, 'WallSolid');
+g.setComp(a, 'MetaData', { name: 'x' });
+g.remove(b);
+const d = g.addDecal({ id: ctx.protos.ids('decal')[0], x: 40, y: 40 });
+g.addDecal({ id: d.id, x: 40.2, y: 40 });
+g.removeDecal(d);
+ctx.report('warn', 'here', [40, 40]);
+ctx.emit('a/b.txt', 'hi');
+ctx.emit('c.yml', await g.yaml());
+return { n: g.entities('WallSolid').filter(e => e.tx === 40 && e.ty === 40).length, sel: ctx.selection.length, fetch: typeof fetch };
+}`;
+  const t40 = JSON.stringify(m.getTile(40, 40)), v0 = m.version, undo0 = m.undoStack.length, ents0 = m.ents.size, dec0 = m.decals.size;
+  const reports = [];
+  const res = await PP.runPipeline(srcApi, { p: 'WallReinforced' }, 'map', msg => { if (msg.cmd === 'report') reports.push(msg); }).done;
+  ok('pipeline run', !res.error && res.result && res.result.n === 1, res.error || JSON.stringify(res.result));
+  ok('pipeline report', reports.length === 1 && reports[0].at[0] === 40);
+  ok('pipeline files', res.files.length === 2 && res.files[1][1].includes('WallSolid'), res.files.map(f => f[0]).join());
+  ok('pipeline grid untouched before apply', m.version === v0);
+  PP.applyOps(m, res.ops, res.uidSeq, 'Пайплайн');
+  const placed = m.entsAt(40, 40).map(u => m.ents.get(u)).filter(e => e.proto === 'WallSolid');
+  ok('pipeline applied', placed.length === 1 && m.getTile(40, 40)[0] === 'FloorSteel' && placed[0].comps.some(c => c.type === 'MetaData')
+    && m.ents.size === ents0 + 1 && m.decals.size === dec0 + 1 && m.undoStack.length === undo0 + 1, `${m.ents.size - ents0} ${m.decals.size - dec0}`);
+  ok('pipeline uid seq', m._uidSeq > +placed[0].uid);
+  m.undo();
+  ok('pipeline undo', m.ents.size === ents0 && m.decals.size === dec0 && JSON.stringify(m.getTile(40, 40)) === t40 && m.entsAt(40, 40).every(u => m.ents.get(u).proto !== 'WallSolid'));
+  // sandbox: no network
+  const bad = await PP.runPipeline(`export default async () => { await fetch('/api/config'); }`, {}, 'map', () => {}).done;
+  ok('pipeline no fetch', !!bad.error, bad.error);
+  const bad2 = await PP.runPipeline(`export default async () => { await import('/js/state.js'); }`, {}, 'map', () => {}).done;
+  ok('pipeline no imports', !!bad2.error, bad2.error);
+  // atomic: an exception discards all edits
+  const thr = await PP.runPipeline(`export default ctx => { ctx.grid.setTile(50, 50, 'FloorSteel'); throw new Error('boom'); }`, {}, 'map', () => {}).done;
+  ok('pipeline error atomic', /boom/.test(thr.error) && !thr.ops.length);
+  // stop
+  const inf = PP.runPipeline(`export default () => { for (;;) {} }`, {}, 'map', () => {});
+  setTimeout(() => inf.stop(), 300);
+  ok('pipeline stop', (await inf.done).error === 'Остановлено');
+  // shipped pipelines load
+  const list = await UI.api.get('/api/pipelines');
+  const srcs = await Promise.all(list.map(async p => ({ key: p.file, text: await (await fetch('/api/pipeline?name=' + encodeURIComponent(p.file))).text() })));
+  const metas = await PP.describe(srcs);
+  ok('pipelines describe', srcs.length >= 5 && [...metas.values()].every(r => r.meta && r.meta.name), JSON.stringify([...metas.values()].filter(r => r.error)));
+  const text = f => srcs.find(s => s.key === f).text;
+  const chk = await PP.runPipeline(text('check-errors'), { space: true, required: true }, 'map', () => {}).done;
+  ok('pipeline check-errors', !chk.error && !chk.ops.length, chk.error);
+  const rep = await PP.runPipeline(text('replace-prototypes'), { table: 'WallSolid -> WallReinforced\nNoSuchProto -> AlsoMissing', onlySelection: false }, 'map', () => {}).done;
+  ok('pipeline replace', !rep.error, rep.error);
+  // FinalView: debug replacement / deletion (also inside a locker), locked airlock with bolts and a door saved half-open
+  {
+    m.begin('fv');
+    m.setTile(60, 60, ['Plating', 0, 0, 0]); m.setTile(61, 60, ['Plating', 0, 0, 0]); m.setTile(62, 60, ['Plating', 0, 0, 0]); m.setTile(63, 60, ['Plating', 0, 0, 0]);
+    const apc = m.addEnt({ proto: 'DebugAPC', x: 60.5, y: 60.5, rot: 0, comps: [] });
+    const thr = m.addEnt({ proto: 'DebugThrusterNfsd', x: 61.5, y: 60.5, rot: 0, comps: [] });
+    const door = m.addEnt({ proto: 'AirlockEngineeringLocked', x: 62.5, y: 60.5, rot: 0, comps: [
+      { type: 'DoorBolt', boltsDown: 'True' }, { type: 'Door', secondsUntilStateChange: -5, state: 'Opening' },
+      { type: 'DeviceLinkSource', lastSignals: { DoorStatus: 'True' } }] });
+    const locker = m.addEnt({ proto: 'LockerSteel', x: 63.5, y: 60.5, rot: 0, comps: [] });
+    m.commit();
+    const [disk] = UI.addToContainer(locker.uid, 'entity_storage', 'ResearchDiskDebug');
+    const fvRep = [];
+    const chk2 = await PP.runPipeline(text('check-errors'), { contained: true, space: true, required: false }, 'map', msg => { if (msg.cmd === 'report') fvRep.push(msg); }).done;
+    const red = fvRep.filter(r => r.sev === 'err').map(r => r.msg).join(' | ');
+    ok('check-errors restricted red', !chk2.error && /DebugAPC/.test(red) && /DebugThrusterNfsd/.test(red) && /ResearchDiskDebug в LockerSteel/.test(red), chk2.error || red);
+    const def = Object.fromEntries(Object.entries(metas.get('final-view').meta.params).map(([k, v]) => [k, v.default]));
+    const fv = await PP.runPipeline(text('final-view'), { ...def, keep: [], unlock: true }, 'map', () => {}).done;
+    ok('final-view run', !fv.error, fv.error);
+    PP.applyOps(m, fv.ops, fv.uidSeq, 'FinalView');
+    const at = (x, y) => m.entsAt(x, y).map(u => m.ents.get(u));
+    const d2 = at(62, 60)[0];
+    const lk = m.ents.get(locker.uid);
+    const ents = lk && lk.comps.find(c => c.type === 'ContainerContainer').containers.entity_storage.$v.ents;
+    ok('final-view debug', at(60, 60)[0]?.proto === 'APCBasic' && at(61, 60)[0]?.proto === 'ThrusterNfsd', at(60, 60).concat(at(61, 60)).map(e => e.proto).join());
+    ok('final-view contained', !m.others.has(disk) && Array.isArray(ents) && !ents.map(String).includes(disk), JSON.stringify(ents));
+    ok('final-view doors', d2 && d2.proto === 'AirlockEngineering' && !d2.comps.some(c => c.type === 'DoorBolt' || c.type === 'Door')
+      && !(d2.comps.find(c => c.type === 'DeviceLinkSource') || {}).lastSignals, d2 && JSON.stringify(d2));
+    ok('final-view one undo step', m.undo() === 'FinalView' && at(60, 60)[0]?.proto === 'DebugAPC' && m.others.has(disk));
+    m.begin('fv-clean'); for (const e of [apc, thr, door, locker]) m.removeEnt(e.uid); m.commit();
+  }
+  const exp = await PP.runPipeline(text('export-with-prototypes'), { vessel: true, group: 'Expedition', category: 'Small', classes: ['Salvage'], engines: [], price: 1000, entities: true, folder: '_NF|_Mono|_LuaM', parents: true, locale: 'en-US, ru-RU' }, 'map', () => {}).done;
+  ok('pipeline export', !exp.error && exp.files.some(f => f[0].startsWith('Resources/') && f[0].endsWith('.yml')), exp.error || exp.files.map(f => f[0]).join());
+  const how = exp.files.find(f => f[0] === 'КАК_ПЕРЕНЕСТИ.txt'), nv = exp.files.find(f => f[0].includes('_Export/Shipyard/'));
+  ok('pipeline export vessel + txt', how && /консоль Expedition/.test(how[1]) && nv && /group: Expedition/.test(nv[1]) && /- Salvage/.test(nv[1]), (how && how[1].slice(0, 300)) + ' ' + (nv && nv[1]));
+  const bat = await PP.runPipeline(text('batch-proto-usage'), { protos: ['/^Gyroscope/'], filter: 'Shuttles/[^/]*/c[a-c]', stations: false }, 'batch', () => {}).done;
+  ok('pipeline batch', !bat.error && bat.files.length === 1 && /Карт: [1-9]/.test(bat.result), bat.error || bat.result);
+  const z = PP.zip([['a.txt', 'hello'], ['dir/б.txt', 'мир']]);
+  const zb = new Uint8Array(await z.arrayBuffer());
+  ok('pipeline zip', zb[0] === 0x50 && zb[1] === 0x4b && new DataView(zb.buffer).getUint32(zb.length - 22, true) === 0x06054b50);
+}
+
 export async function run() {
   const out = document.createElement('pre');
   out.id = 'dbg';
+  if (new URLSearchParams(location.search).get('selftest') === 'pipelines') {
+    try { await pipelineTests(); } catch (e) { log.push('EXCEPTION ' + (e.stack || e)); }
+    out.textContent = log.join('\n');
+    document.body.append(out);
+    return;
+  }
   try {
     const m = S.model;
     S.view.z = 32; S.view.cx = 0; S.view.cy = 0;
@@ -474,6 +579,7 @@ export async function run() {
       UI.closeModal();
       S.model.begin('Удаление'); S.model.removeEnt(paper.uid); S.model.commit();
     }
+    await pipelineTests();
     // open a real map and run validator/bake
   } catch (e) {
     log.push('EXCEPTION ' + (e.stack || e));

@@ -63,7 +63,8 @@ class Config:
         self.preset_dir = os.path.join(TOOL_DIR, "presets")
         self.palette_dir = os.path.join(TOOL_DIR, "palettes")
         self.user_dir = os.path.join(TOOL_DIR, "shuttles")  # user's own shuttles, opened as "user/<file>.yml"
-        for d in (self.cache_dir, self.autosave_dir, self.prefab_dir, self.palette_dir, self.user_dir,
+        self.pipeline_dir = os.path.join(TOOL_DIR, "pipelines")  # user scripts run by the web client (pipelines.js)
+        for d in (self.cache_dir, self.autosave_dir, self.prefab_dir, self.palette_dir, self.user_dir, self.pipeline_dir,
                   *(os.path.join(self.preset_dir, k) for k in PRESET_KINDS)):
             os.makedirs(d, exist_ok=True)
 

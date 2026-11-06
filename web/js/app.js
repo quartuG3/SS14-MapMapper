@@ -9,6 +9,7 @@ import * as TX from './texts.js';
 import { key, unkey, tileOf } from './logic.js';
 import { activePreset } from './symmetry.js';
 import { loadPalettes } from './palettes.js';
+import { pipelinesDialog } from './pipelines.js';
 
 const $ = id => document.getElementById(id);
 const api = UI.api;
@@ -345,7 +346,7 @@ function bindKeys() {
 function bindMenu() {
   document.querySelectorAll('#topbar [data-act]').forEach(b => b.addEventListener('click', () => {
     const a = b.dataset.act;
-    if (!S.model && !['open', 'new', 'help'].includes(a)) return;
+    if (!S.model && !['open', 'new', 'help', 'pipelines'].includes(a)) return;
     ({
       new: () => UI.newDialog(newMap),
       open: () => UI.openDialog(loadMap),
@@ -361,6 +362,7 @@ function bindMenu() {
       validate: UI.validateDialog,
       radar: UI.radarDialog,
       findReplace: UI.findReplaceDialog,
+      pipelines: () => pipelinesDialog(loadMap),
       names: () => TX.namesDialog(S.inspected),
       vessel: UI.vesselDialog,
       help: UI.helpDialog,
@@ -455,7 +457,7 @@ async function main() {
   if (qs.get('inspect') && S.model) { S.inspected = qs.get('inspect'); setTool('inspect'); emit('inspect'); const e = S.model.ents.get(S.inspected); if (e) { S.view.cx = e.x; S.view.cy = e.y; } }
   if (qs.get('layers')) for (const k of qs.get('layers').split(',')) S.layers[k] = true;
   const dlg = { export: UI.exportDialog, validate: UI.validateDialog, vessel: UI.vesselDialog, radar: UI.radarDialog, open: () => UI.openDialog(loadMap),
-    names: () => TX.namesDialog(S.inspected), paper: () => S.inspected && TX.paperDialog(S.inspected) }[qs.get('dialog')];
+    names: () => TX.namesDialog(S.inspected), pipelines: () => pipelinesDialog(loadMap), paper: () => S.inspected && TX.paperDialog(S.inspected) }[qs.get('dialog')];
   if (dlg && S.model) dlg();
   if (qs.has('selftest')) (await import('./selftest.js')).run({ loadMap, newMap });
   void size; void savePrefs; void paste; void key; void unkey;

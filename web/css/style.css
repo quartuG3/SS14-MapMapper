@@ -99,6 +99,8 @@ kbd { background: var(--bg3); border: 1px solid var(--line); border-radius: 3px;
 .issue { padding: 4px 6px; border-left: 3px solid var(--warn); margin: 3px 0; background: #1a1d24; cursor: pointer; }
 .issue.err { border-left-color: var(--bad); }
 .issue.ok { border-left-color: var(--good); }
+.issue.info { border-left-color: var(--muted); }
+.list .li.on { background: #2a3448; }
 .issue.info { border-left-color: var(--acc); }
 table.kv { width: 100%; border-collapse: collapse; }
 table.kv td { padding: 2px 4px; border-bottom: 1px solid #252933; vertical-align: top; }

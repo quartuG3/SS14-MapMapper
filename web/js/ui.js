@@ -1841,7 +1841,7 @@ async function vesselEnums() {
   }
   return enumCache;
 }
-function chips(values, selected, onChange) {
+export function chips(values, selected, onChange, title = v => v) {
   const box = h('div', { class: 'chips' });
   const sel = new Set(selected);
   for (const v of [...new Set([...values, ...selected])]) {
@@ -1851,6 +1851,7 @@ function chips(values, selected, onChange) {
         lab.classList.toggle('on', e.target.checked);
         onChange([...values, ...selected].filter((x, i, a) => sel.has(x) && a.indexOf(x) === i));
       } }), v);
+    if (title(v) !== v) lab.title = title(v);
     box.append(lab);
   }
   return box;
@@ -1860,30 +1861,18 @@ function selectOf(values, current, onChange) {
   return h('select', { onchange: e => onChange(e.target.value) }, ...list.map(v => h('option', { value: v, selected: v === current }, v)));
 }
 
-export async function vesselDialog() {
-  const model = M();
-  const en = await vesselEnums();
-  const ex = (model.doc.vessels || [])[0] || {};
-  const s = stats(model);
-  const path = model.path ? '/' + model.path : '/SharedMaps/_Mono/Shuttles/Civilian/newshuttle.yml';
-  const fileId = path.split('/').pop().replace(/\.yml$/, '');
-  const base0 = Math.round(s.price);
-  const savedMarkup = +(localStorage.getItem('ss14mapper.markup') ?? 5);
-  const f = {
-    id: ex.id || fileId.charAt(0).toUpperCase() + fileId.slice(1), name: ex.name || fileId, description: ex.description || '',
-    category: ex.category || 'Small', group: ex.group || 'Shipyard',
-    shuttlePath: ex.shuttlePath || path, classes: Array.isArray(ex.class) ? ex.class : [], engines: Array.isArray(ex.engine) ? ex.engine : [],
-    gameMap: !ex.id, stationProto: 'StandardFrontierVessel',
-  };
-  const calc = { base: base0, markup: savedMarkup, round: 100, manual: !!ex.price, price: +ex.price || 0 };
-  if (ex.price && base0 > 0) calc.markup = Math.max(0, Math.round(((+ex.price / base0) - 1) * 100 / 5) * 5);
+/** Shuttle price calculator: estimate (sum of StaticPrice of the open grid) × (1 + markup), rounding, manual price.
+ *  price: the current vessel price (0 = computed). onChange(price) after every change. Returns {el, price()}. */
+export function priceCalculator(price, onChange) {
+  const base0 = Math.round(stats(M()).price);
+  const calc = { base: base0, markup: +(localStorage.getItem('ss14mapper.markup') ?? 5), round: 100, manual: !!price, price: +price || 0 };
+  if (price && base0 > 0) calc.markup = Math.max(0, Math.round(((+price / base0) - 1) * 100 / 5) * 5);
   const computed = () => {
     const raw = calc.base * (1 + calc.markup / 100);
     return calc.round > 1 ? Math.ceil(raw / calc.round) * calc.round : Math.ceil(raw);
   };
   if (!calc.manual) calc.price = computed();
 
-  const out = h('textarea', { rows: 14 });
   const priceIn = h('input', { type: 'number', value: calc.price, style: 'width:110px' });
   const pctLabel = h('b', {});
   const warn = h('span', { class: 'muted', style: 'font-size:11px' });
@@ -1895,7 +1884,7 @@ export async function vesselDialog() {
       ? `фактическая наценка ${real.toFixed(1)}%` + (real < 0 ? ' — цена ниже оценки!' : real > 150 ? ' — выше maxPriceMarkup 2.5 (Mono)' : '')
       : '';
     warn.style.color = real < 0 || real > 150 ? 'var(--bad)' : '';
-    out.value = vesselYaml({ ...f, price: calc.price });
+    if (onChange) onChange(calc.price);
   };
   priceIn.oninput = () => { calc.manual = true; calc.price = +priceIn.value || 0; manualChk.checked = true; upd(); };
   const manualChk = h('input', { type: 'checkbox', checked: calc.manual, onchange: e => { calc.manual = e.target.checked; upd(); } });
@@ -1913,6 +1902,30 @@ export async function vesselDialog() {
   const baseIn = h('input', { type: 'number', value: calc.base, style: 'width:110px', oninput: e => { calc.base = +e.target.value || 0; upd(); } });
   const roundSel = h('select', { onchange: e => { calc.round = +e.target.value; upd(); } },
     ...[[1, 'без округления'], [10, 'до 10'], [100, 'до 100'], [500, 'до 500'], [1000, 'до 1000']].map(([v, n]) => h('option', { value: v, selected: v === calc.round }, n)));
+  const el = h('div', {},
+    h('div', { class: 'row' }, 'Оценка (StaticPrice)', baseIn, h('button', { title: 'Пересчитать по карте', onclick: () => { calc.base = Math.round(stats(M()).price); baseIn.value = calc.base; upd(); } }, '↻'), 'округление', roundSel),
+    h('div', { class: 'row' }, 'Наценка', slider, pctSel, pctLabel),
+    h('div', { class: 'row' }, 'Цена', priceIn, h('label', { class: 'chk' }, manualChk, 'вручную'), warn),
+    h('p', { class: 'muted', style: 'font-size:11px' }, 'Оценка — сумма StaticPrice сущностей; реальную стоимость в игре считает аппрейзер (материалы, содержимое и т.п.). Наценка выбирается с шагом 5%.'));
+  upd();
+  return { el, price: () => calc.price };
+}
+
+export async function vesselDialog() {
+  const model = M();
+  const en = await vesselEnums();
+  const ex = (model.doc.vessels || [])[0] || {};
+  const path = model.path ? '/' + model.path : '/SharedMaps/_Mono/Shuttles/Civilian/newshuttle.yml';
+  const fileId = path.split('/').pop().replace(/\.yml$/, '');
+  const f = {
+    id: ex.id || fileId.charAt(0).toUpperCase() + fileId.slice(1), name: ex.name || fileId, description: ex.description || '',
+    category: ex.category || 'Small', group: ex.group || 'Shipyard',
+    shuttlePath: ex.shuttlePath || path, classes: Array.isArray(ex.class) ? ex.class : [], engines: Array.isArray(ex.engine) ? ex.engine : [],
+    gameMap: !ex.id, stationProto: 'StandardFrontierVessel', price: 0,
+  };
+  const out = h('textarea', { rows: 14 });
+  const upd = () => { out.value = vesselYaml(f); };
+  const calc = priceCalculator(ex.price, p => { f.price = p; upd(); });
 
   const inp = k => h('input', { class: 'grow', value: f[k], oninput: e => { f[k] = e.target.value; upd(); } });
   const savePath = h('input', { class: 'grow', value: `Prototypes/_Mono/Shipyard/${(f.shuttlePath.split('/').slice(-2, -1)[0] || 'Civilian')}/${fileId}.yml` });
@@ -1924,13 +1937,9 @@ export async function vesselDialog() {
       'Группа', selectOf(en.group || ['Shipyard'], f.group, v => { f.group = v; upd(); })),
     h('h4', {}, 'Классы'), chips(en.class || [], f.classes, v => { f.classes = v; upd(); }),
     h('h4', {}, 'Двигатели'), chips(en.engine || [], f.engines, v => { f.engines = v; upd(); }),
-    h('h4', {}, 'Калькулятор цены'),
-    h('div', { class: 'row' }, 'Оценка (StaticPrice)', baseIn, h('button', { title: 'Пересчитать по карте', onclick: () => { calc.base = Math.round(stats(M()).price); baseIn.value = calc.base; upd(); } }, '↻'), 'округление', roundSel),
-    h('div', { class: 'row' }, 'Наценка', slider, pctSel, pctLabel),
-    h('div', { class: 'row' }, 'Цена', priceIn, h('label', { class: 'chk' }, manualChk, 'вручную'), warn),
+    h('h4', {}, 'Калькулятор цены'), calc.el,
     h('div', { class: 'row' }, 'shuttlePath', inp('shuttlePath')),
     h('div', { class: 'row' }, h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: f.gameMap, onchange: e => { f.gameMap = e.target.checked; upd(); } }), 'добавить gameMap'), 'stationProto', inp('stationProto')),
-    h('p', { class: 'muted', style: 'font-size:11px' }, 'Оценка — сумма StaticPrice сущностей; реальную стоимость в игре считает аппрейзер (материалы, содержимое и т.п.). Наценка выбирается с шагом 5%.'),
     out,
     h('div', { class: 'row' }, h('button', { onclick: () => { navigator.clipboard.writeText(out.value); toast('Скопировано', 'ok'); } }, 'Копировать'),
       savePath, h('button', { onclick: async () => {
