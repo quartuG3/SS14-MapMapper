@@ -8,6 +8,7 @@ export const P = {
   entCats: [],
   srcPorts: new Map(),
   dockLabels: {},             // dock-label-* locale strings for Docking names
+  stampNames: {},             // stamp-component-stamped-name-* locale strings (texts on paper stamps)
   sinkPorts: new Map(),
 };
 
@@ -20,6 +21,7 @@ export async function loadProtos() {
   for (const d of j.decals) P.decals.set(d.id, d);
   P.migrations = j.migrations || {};
   P.dockLabels = j.dockLabels || {};
+  P.stampNames = j.stampNames || {};
   P.renderVersion = j.renderVersion || '';
   for (const p of (j.ports && j.ports.source) || []) P.srcPorts.set(p.id, p);
   for (const p of (j.ports && j.ports.sink) || []) P.sinkPorts.set(p.id, p);

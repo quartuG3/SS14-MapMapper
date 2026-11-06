@@ -68,6 +68,37 @@ def fmt_key(k):
     return fmt_scalar(k if isinstance(k, str) else str(k))
 
 
+class _FoldedDumper(yaml.SafeDumper):
+    pass
+
+
+_FoldedDumper.add_representer(str, lambda d, s: d.represent_scalar("tag:yaml.org,2002:str", s, style=">" if "\n" in s else None))
+
+
+def folded(s, col):
+    """Multi-line text as a folded block (">", ">-", ">2-"...) like the engine writes paper texts:
+    [header, *lines] with the lines indented for a key at column `col`. None when the text can't be
+    a block (tabs, trailing spaces, control characters) and has to stay a quoted string."""
+    if any(c in s for c in "\r\x85  ﻿"):
+        return None
+    try:
+        text = yaml.dump({"k": s}, Dumper=_FoldedDumper, allow_unicode=True, width=10 ** 9)
+    except yaml.YAMLError:
+        return None
+    if not text.startswith("k: >"):
+        return None  # PyYAML fell back to a quoted style
+    try:
+        if load(text) != {"k": s}:
+            return None
+    except yaml.YAMLError:
+        return None
+    lines = text[:-1].split("\n")
+    if lines[-1] == "...":
+        lines.pop()
+    pad = " " * col
+    return [lines[0][3:]] + [pad + ln if ln else "" for ln in lines[1:]]
+
+
 def dump(obj, doc_end=False):
     out = []
     if isinstance(obj, dict):
@@ -122,7 +153,12 @@ def _emit_kv(head, v, indent, out):
             out.append(head)
             _emit_seq(v, indent, out)
     else:
-        out.append(head + " " + fmt_scalar(v))
+        blk = folded(v, indent) if isinstance(v, str) and "\n" in v else None
+        if blk:
+            out.append(head + " " + blk[0])
+            out.extend(blk[1:])
+        else:
+            out.append(head + " " + fmt_scalar(v))
 
 
 def _emit_seq(lst, indent, out, first_prefix=None):

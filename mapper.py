@@ -20,7 +20,7 @@ from ss14map import gridfile, yamlio
 from ss14map.atmos import exposed_tiles
 from ss14map.config import PRESET_KINDS, TOOL_DIR, USER_PREFIX, Config
 from ss14map.prototypes import ProtoIndex
-from ss14map.sprites import SpriteBank, png_bytes
+from ss14map.sprites import SpriteBank, parse_color, png_bytes, tint as tint_image
 
 WEB_DIR = os.path.join(TOOL_DIR, "web")
 MAP_ROOTS = ("SharedMaps", "Maps")
@@ -286,6 +286,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._image(bank.tile(q["id"], int(q.get("v", 0))))
             if route == "decal":
                 return self._image(bank.decal(q["id"], q.get("c") or None))
+            if route == "rsistate":
+                rsi = bank.rsi(q["rsi"])
+                return self._image(rsi.frame(q["state"], 0) if rsi and rsi.has(q["state"]) else None)
+            if route == "res":
+                return self._resource(q["path"], q.get("tint") or None)
+            if route == "papertemplates":
+                return self._json(protos.paper_templates())
+            if route == "paper":
+                info = protos.paper_info(q["p"])
+                if info is None:
+                    return self._err("unknown prototype", 404)
+                rsi = bank.rsi(info["rsi"]) or bank.rsi("Objects/Misc/bureaucracy.rsi")
+                # stamp marks a paper sprite can show (PaperVisualLayers.Stamp uses the paper's own RSI)
+                info["stampStates"] = sorted(s for s in (rsi.states if rsi else {}) if s.startswith("paper_stamp-"))
+                info["rsi"] = info["rsi"] if bank.rsi(info["rsi"]) else "Objects/Misc/bureaucracy.rsi"
+                return self._json(info)
             if route == "enums":
                 return self._json(vessel_enums())
             if route == "vessels":
@@ -335,6 +351,8 @@ class Handler(BaseHTTPRequestHandler):
                         f.write(text)
                     return self._json({"ok": True, "path": rel, "bytes": len(text)})
                 return self._send(200, text, "text/yaml; charset=utf-8")
+            if route == "enttext":
+                return self._json({pid: protos.ent_text(pid) for pid in body["ids"][:20000]})
             if route == "yaml/dump":
                 return self._json({"text": yamlio.dump(body["obj"])})
             if route == "yaml/load":
@@ -418,6 +436,22 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa
             traceback.print_exc()
             return self._err(f"{type(e).__name__}: {e}", 500)
+
+    def _resource(self, rel, tint=None):
+        """A texture or font of the build (paper backgrounds, stamp border, NotoSans); png can be tinted."""
+        rel = rel.replace("\\", "/").lstrip("/")
+        full = os.path.normpath(os.path.join(cfg.resources, rel))
+        ext = os.path.splitext(full)[1].lower()
+        if not rel.startswith(("Textures/", "Fonts/")) or ext not in (".png", ".ttf", ".otf") \
+                or not full.startswith(os.path.normpath(cfg.resources) + os.sep) or not os.path.isfile(full):
+            return self._err("not found", 404)
+        if ext == ".png" and tint:
+            img = bank.texture(rel)
+            c = parse_color(tint)
+            return self._image(tint_image(img, c) if img is not None and c else img)
+        with open(full, "rb") as f:
+            ctype = {".png": "image/png", ".ttf": "font/ttf", ".otf": "font/otf"}[ext]
+            self._send(200, f.read(), ctype, {"Cache-Control": "max-age=3600"})
 
     def _static(self, rel):
         full = os.path.normpath(os.path.join(WEB_DIR, rel))

@@ -44,13 +44,15 @@ export const S = {
   radar: { range: 0, color: '#00FA9A', bg: '#141414', center: 'console', shield: false, shieldColor: '', blips: true, docks: true, labels: true, azimuth: true, rings: true },
   radarDock: { open: false, x: null, y: null, size: 240, expanded: false },   // pinned scanner mini window
   subfloor: { grates: 'Lattice|Grat|Grid|Catwalk|TechMaint|Mesh', showOnGrates: true },
+  // paper editor and names editor (texts.js): own stamps, last colours, list filters
+  paper: { custom: [], color: '#cc0000', lastName: '', lastColor: '#bb3232', namesOnlySet: false, namesItems: false },
 };
 
 const handlers = {};
 export function on(ev, fn) { (handlers[ev] ||= []).push(fn); }
 export function emit(ev, ...a) { for (const fn of handlers[ev] || []) fn(...a); }
 
-const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'disposal', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel', 'saveOpts', 'palOpts', 'radar', 'radarDock'];
+const PERSIST = ['subfloor', 'layers', 'pipeLayers', 'pipe', 'wire', 'disposal', 'decal', 'tileOpts', 'entOpts', 'fillOpts', 'eraseOpts', 'selFilter', 'recent', 'sel', 'saveOpts', 'palOpts', 'radar', 'radarDock', 'paper'];
 export function loadPrefs() {
   try {
     const j = JSON.parse(localStorage.getItem('ss14mapper.prefs') || '{}');

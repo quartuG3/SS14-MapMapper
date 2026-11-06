@@ -4,9 +4,10 @@ import { P, search, displayName, ent as protoOf, mirrorId } from './protos.js';
 import { newGroup, symToFile, symFromFile, randomToFile, randomFromFile } from './symmetry.js';
 import * as PL from './palettes.js';
 import * as RD from './radar.js';
+import * as TX from './texts.js';
 import * as A from './assets.js';
 import * as O from './ops.js';
-import { TOOLS, TOOL_ORDER, setTool, setMode, startPaste, fillCells } from './tools.js';
+import { TOOLS, TOOL_ORDER, setTool, setMode, startPaste, fillCells, specialContext } from './tools.js';
 import * as TL from './tools.js';
 import * as L from './links.js';
 import { requestDraw, centerOn, fitToContent, bake, size as viewSize, s2w } from './view.js';
@@ -40,8 +41,9 @@ export const api = {
 };
 
 // ===================================================================== modal
-export function modal(title, body, onClose) {
+export function modal(title, body, onClose, { wide = false } = {}) {
   $('modalTitle').textContent = title;
+  $('modal').querySelector('.modal-box').classList.toggle('wide', wide);
   const mb = $('modalBody');
   mb.innerHTML = '';
   mb.append(body);
@@ -67,10 +69,15 @@ export function buildToolbar() {
     renderToolOptions();
   });
   on('selection', () => { renderToolOptions(); updateStatus(); });
-  on('mode', renderToolOptions);
+  on('mode', m => {
+    // a special mode places prototypes: show them in the palette
+    if (m !== 'normal' && S.palView !== 'custom' && S.palView !== 'entity') setPalKind('entity', true);
+    renderToolOptions();
+  });
 }
 
 // ===================================================================== tool options
+const MODE_TOOL = { wiring: 'wire', atmos: 'pipe', disposal: 'disposal' };
 const PIPE_COLORS = [['#0055CCFF', 'Подача'], ['#990000FF', 'Отходы'], ['#03FCD3FF', 'Смесь'], ['#FF1212FF', 'Плазма'], ['#FFEB3BFF', 'Азот/O₂'], ['#947507FF', 'Топливо'], ['#FFFFFFFF', 'Белый']];
 function chk(label, obj, k, after) {
   return h('label', {}, h('input', { type: 'checkbox', checked: !!obj[k], onchange: e => { obj[k] = e.target.checked; savePrefs(); after && after(); requestDraw(); } }), label);
@@ -79,7 +86,9 @@ export function renderToolOptions() {
   const box = $('toolOptions');
   box.innerHTML = '';
   const t = TOOLS[S.tool];
-  const opts = (t && t.options) || [];
+  const opts = [...((t && t.options) || [])];
+  const ctx = specialContext();
+  if (S.tool === 'entity' && ctx) opts.push(MODE_TOOL[ctx]);
   const add = (...els) => box.append(...els);
   if (opts.includes('brush')) {
     add(h('label', {}, 'Кисть', h('input', { type: 'range', min: 1, max: 9, value: S.brush, oninput: e => { S.brush = +e.target.value; e.target.nextSibling.textContent = S.brush; requestDraw(); } }), String(S.brush)));
@@ -129,7 +138,7 @@ export function renderToolOptions() {
     } else add(h('span', { class: 'muted' }, lk.mode === 'list' ? 'Кликните по AirAlarm / FireAlarm, затем по устройствам' : 'Кликните по источнику (кнопка, рычаг…), затем по приёмнику'));
   }
   if (opts.includes('dup')) add(h('span', { title: 'Разрешить несколько одинаковых прототипов в одной точке' }, chk('дубликаты', S.entOpts, 'allowDup')));
-  if (opts.includes('devices') && (S.tool !== 'entity' || S.mode !== 'normal')) deviceBar(add);
+  if (opts.includes('devices') && (S.tool !== 'entity' || ctx)) deviceBar(add, ctx);
   if (opts.includes('decal')) {
     add(h('label', {}, 'Цвет', h('input', { type: 'color', value: S.decal.color.slice(0, 7), oninput: e => { S.decal.color = e.target.value.toUpperCase() + S.decal.color.slice(7, 9).padEnd(2, 'F'); savePrefs(); requestDraw(); } })),
       h('label', {}, 'α', h('input', { type: 'range', min: 0, max: 255, value: parseInt(S.decal.color.slice(7, 9) || 'FF', 16), oninput: e => { S.decal.color = S.decal.color.slice(0, 7) + (+e.target.value).toString(16).padStart(2, '0').toUpperCase(); savePrefs(); } })),
@@ -205,8 +214,7 @@ function devicesFor(mode) {
     all.filter(f).sort((a, b) => a.id.length - b.id.length || a.id.localeCompare(b.id)).slice(0, 8)]).filter(g => g[1].length);
   return deviceCache[mode];
 }
-function deviceBar(add) {
-  const mode = S.mode === 'normal' ? ({ wire: 'wiring', disposal: 'disposal' })[S.tool] || 'atmos' : S.mode;
+function deviceBar(add, mode) {
   const bar = h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%' });
   const back = { wiring: ['wire', '⚡ к кабелям'], atmos: ['pipe', '◎ к трубам'], disposal: ['disposal', '♻ к утилизации'] }[mode];
   if (S.tool === 'entity') bar.append(h('button', { onclick: () => setTool(back[0]) }, back[1]));
@@ -349,7 +357,7 @@ export function selAction(act) {
 let palObserver = null;
 export function buildPalette() {
   const kindSeg = $('palKind');
-  kindSeg.querySelectorAll('button').forEach(b => b.onclick = () => { setPalKind(b.dataset.kind); });
+  kindSeg.querySelectorAll('button').forEach(b => b.onclick = () => { setPalKind(b.dataset.kind); toolForPalKind(b.dataset.kind); });
   $('palSearch').oninput = () => renderPalette();
   $('palCat').onchange = () => renderPalette();
   $('palHidden').onchange = () => renderPalette();
@@ -364,6 +372,12 @@ export function buildPalette() {
   });
   on('recent', renderRecent);
   setPalKind(S.palKind);
+}
+// opening a palette tab selects its placement tool; fill and selection tools work with any kind and stay
+const PAL_TOOL = { tile: 'tile', entity: 'entity', decal: 'decal' };
+function toolForPalKind(kind) {
+  const tool = PAL_TOOL[kind];
+  if (tool && S.tool !== tool && !['fill', 'select', 'wand'].includes(S.tool)) setTool(tool);
 }
 export function setPalKind(kind, keepSearch) {
   // palView is what the tab shows ('custom' = own palettes), palKind the kind of the current element
@@ -696,6 +710,7 @@ export async function renderInspector() {
       h('button', { onclick: () => { S.sel.entity = e.proto; S.rotSteps = rotSteps(e.rot); setTool('entity'); setPalKind('entity', true); } }, 'Взять в кисть'),
       h('button', { onclick: () => { centerOn(e.x, e.y); } }, 'Показать'),
       h('button', { class: 'danger', onclick: () => { model.begin('Удаление'); model.removeEnt(uid); model.commit(); S.inspected = null; renderInspector(); } }, 'Удалить')));
+  TX.metaSection(box, uid);
   linksSection(box, e);
   containersSection(box, e);
   box.append(h('h4', {}, 'Компоненты (YAML, без Transform)'), ta, h('div', { class: 'row' }, h('button', { onclick: apply }, 'Применить YAML')));
@@ -858,6 +873,9 @@ function containersSection(box, e) {
       const nested = model.descendants(u).length;
       l.append(entRow({ uid: u, proto: o.proto }, {
         extra: [nested ? h('span', { class: 'muted', title: 'вложенных сущностей' }, `+${nested}`) : null,
+          TX.metaOf(u).name ? h('span', { class: 'muted', title: 'Своё название (MetaData)' }, '«' + TX.metaOf(u).name + '»') : null,
+          TX.isPaper(o.proto) ? h('button', { style: 'padding:0 4px', title: 'Текст и печати бумаги', onclick: ev => { ev.stopPropagation(); TX.paperDialog(u); } }, '📝') : null,
+          h('button', { style: 'padding:0 4px', title: 'Название и описание (F2)', onclick: ev => { ev.stopPropagation(); TX.namesDialog(u); } }, 'Aa'),
           h('button', { style: 'padding:0 4px', title: 'Компоненты (YAML)', onclick: () => editOtherDialog(u) }, '✎'),
           xBtn('Удалить', () => { removeFromContainer(e.uid, c.name, u); renderInspector(); })] }));
     }
@@ -1948,6 +1966,7 @@ export function helpDialog() {
     ['F / Shift+F', 'залить выделение / контур выделения текущим прототипом'],
     ['Ctrl+R, Shift+H, Shift+J', 'повернуть / отразить выделение'],
     ['Ctrl+S, Ctrl+O, Ctrl+H', 'сохранить, открыть, поиск и замена'],
+    ['F2', 'названия и описания (с выбранной сущностью); в редакторе бумаги Ctrl+B / I / U — теги, Ctrl+Enter — применить'],
     ['Home', 'показать весь грид'],
     ['Линейки', 'тяните с линейки — направляющая; обратно — удалить'],
   ];

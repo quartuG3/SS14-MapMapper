@@ -7,8 +7,9 @@ import re
 import time
 
 from . import yamlio
+from .ftl import Ftl
 
-CACHE_VERSION = 13
+CACHE_VERSION = 15
 
 DRAW_DEPTH = {
     "LowFloors": -20, "ThickPipe": -19, "ThickWire": -18, "ThinPipeAlt2": -17, "ThinPipeAlt1": -16, "ThinPipe": -15, "ThinWire": -14,
@@ -76,6 +77,7 @@ class ProtoIndex:
         self.locale = {}
         self.resolved = {}
         self.migrations = {}
+        self.ftl = Ftl(cfg)  # full locale, loaded on first use (descriptions, paper texts, stamp names)
         self._load()
 
     # ------------------------------------------------------------------ loading
@@ -353,6 +355,16 @@ class ProtoIndex:
             b, e = _fnums(gem.get("begin", "")), _fnums(gem.get("end", ""))
             if len(b) == 2 and len(e) == 2:
                 s["edgeMark"] = b + e
+        if "Paper" in comps:
+            s["paper"] = 1
+        st = comps.get("Stamp")
+        if st is not None:
+            # StampComponent defaults; stampedName is a locale key (or plain text in old maps)
+            s["stamp"] = {"name": _norm_name(st.get("stampedName")) or "stamp-component-stamped-name-default",
+                          "color": _norm_name(st.get("stampedColor")) or "#BB3232",
+                          "state": _norm_name(st.get("stampState")) or "paper_stamp-generic"}
+            if str(st.get("reapply", "")).lower() == "true":
+                s["stamp"]["reapply"] = 1
         sse = comps.get("ShipShieldEmitter")
         if sse is not None:
             s["shield"] = _norm_name(sse.get("shieldColor")) or "White"
@@ -477,7 +489,57 @@ class ProtoIndex:
             "dockLabels": {k: v for lang in ("en-US", self.cfg.locale) for k, v in self.locale.get(lang, {}).items()
                            if k.startswith("dock-label-")},
             "ports": {kind: [self._port(kind, v) for v in m.values()] for kind, m in self.ports.items()},
+            "stampNames": self.stamp_names(),
         }
+
+    # ------------------------------------------------------------------ texts
+    def stamp_names(self):
+        """Locale text of every stamp-component-stamped-name-* key (what the paper shows on a stamp)."""
+        self.ftl._load()
+        keys = {k for d in self.ftl._langs for k in d if k.startswith("stamp-component-stamped-name-")}
+        keys |= {s["stamp"]["name"] for s in self.summary.values() if "stamp" in s}
+        return {k: v for k in sorted(keys) if (v := self.ftl.get(k)) is not None}
+
+    def ent_text(self, pid):
+        """Name and description an entity shows in game (locale first, prototype fields as fallback)."""
+        r = self.resolve(pid)
+        if r is None:
+            return None
+        name = self.ftl.get("ent-" + pid)
+        desc = self.ftl.get("ent-" + pid + ".desc")
+        return {"name": name if name is not None else _norm_name(r.get("name")),
+                "desc": desc if desc is not None else _norm_name(r.get("description"))}
+
+    def paper_templates(self):
+        """Paper prototypes that come with a written text (forms, memos): [{id, name}]."""
+        out = []
+        for pid, s in self.summary.items():
+            if "paper" not in s:
+                continue
+            c = ((self.resolve(pid) or {}).get("components", {}).get("Paper") or {}).get("content")
+            if isinstance(c, str) and c.strip():
+                out.append({"id": pid, "name": s.get("ru") or s.get("name") or pid})
+        return sorted(out, key=lambda x: x["name"].lower())
+
+    def paper_info(self, pid):
+        """Default text and look of a paper prototype (PaperComponent / PaperVisualsComponent)."""
+        r = self.resolve(pid)
+        if r is None:
+            return None
+        comps = r["components"]
+        paper = comps.get("Paper") or {}
+        content = paper.get("content") if isinstance(paper.get("content"), str) else ""
+        if content and "\n" not in content.strip():
+            # PaperSystem.OnMapInit runs the text through Loc.GetString: prototypes use locale keys
+            loc = self.ftl.get(content.strip())
+            if loc is not None:
+                content = loc
+        vis = comps.get("PaperVisuals")
+        out = {"content": content, "contentSize": int(_num(paper.get("contentSize"), 6000) or 6000),
+               "visuals": {k: v for k, v in (vis or {}).items() if isinstance(v, str)} if vis is not None else None}
+        spr = comps.get("Sprite") or {}
+        out["rsi"] = _norm_name(spr.get("sprite"))
+        return out
 
     def _port(self, kind, v):
         loc = self.locale.get(self.cfg.locale, {}).get(v["name"]) or self.locale.get("en-US", {}).get(v["name"])

@@ -5,6 +5,7 @@ import { Model } from './model.js';
 import { initView, requestDraw, s2w, w2s, zoomAt, fitToContent, size } from './view.js';
 import { TOOLS, setTool, setMode, startPaste, pickAt, paste, rotateBrushTile } from './tools.js';
 import * as UI from './ui.js';
+import * as TX from './texts.js';
 import { key, unkey, tileOf } from './logic.js';
 import { activePreset } from './symmetry.js';
 import { loadPalettes } from './palettes.js';
@@ -314,6 +315,7 @@ function bindKeys() {
     if (code === 'Escape') { S.selection = new Set(); S.inspected = null; S.highlight = null; emit('selection'); emit('inspect'); requestDraw(); return; }
     if (code === 'Delete' || code === 'Backspace') { if (S.selection.size) UI.selAction('delete'); return; }
     if (code === 'F1') { UI.helpDialog(); ev.preventDefault(); return; }
+    if (code === 'F2') { TX.namesDialog(S.inspected); ev.preventDefault(); return; }
     if (code === 'Home') { fitToContent(); return; }
     if (code === 'BracketLeft') { S.brush = Math.max(1, S.brush - 1); UI.renderToolOptions(); requestDraw(); return; }
     if (code === 'BracketRight') { S.brush = Math.min(9, S.brush + 1); UI.renderToolOptions(); requestDraw(); return; }
@@ -359,6 +361,7 @@ function bindMenu() {
       validate: UI.validateDialog,
       radar: UI.radarDialog,
       findReplace: UI.findReplaceDialog,
+      names: () => TX.namesDialog(S.inspected),
       vessel: UI.vesselDialog,
       help: UI.helpDialog,
     })[a]?.();
@@ -451,7 +454,8 @@ async function main() {
   if ((S.radarDock.open || qs.has('dock')) && S.model) UI.radarDock.open();
   if (qs.get('inspect') && S.model) { S.inspected = qs.get('inspect'); setTool('inspect'); emit('inspect'); const e = S.model.ents.get(S.inspected); if (e) { S.view.cx = e.x; S.view.cy = e.y; } }
   if (qs.get('layers')) for (const k of qs.get('layers').split(',')) S.layers[k] = true;
-  const dlg = { export: UI.exportDialog, validate: UI.validateDialog, vessel: UI.vesselDialog, radar: UI.radarDialog, open: () => UI.openDialog(loadMap) }[qs.get('dialog')];
+  const dlg = { export: UI.exportDialog, validate: UI.validateDialog, vessel: UI.vesselDialog, radar: UI.radarDialog, open: () => UI.openDialog(loadMap),
+    names: () => TX.namesDialog(S.inspected), paper: () => S.inspected && TX.paperDialog(S.inspected) }[qs.get('dialog')];
   if (dlg && S.model) dlg();
   if (qs.has('selftest')) (await import('./selftest.js')).run({ loadMap, newMap });
   void size; void savePrefs; void paste; void key; void unkey;

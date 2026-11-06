@@ -5,6 +5,7 @@ import * as PL from './palettes.js';
 import * as RD from './radar.js';
 import { w2s, bake } from './view.js';
 import * as UI from './ui.js';
+import * as TX from './texts.js';
 import { validate, stats, findReplace } from './features.js';
 import { key, openPipeEnds, cableNetwork, exposedTiles, pipeDirsOf, rotateTileVal, mirrorTileVal, dispDirsOf, dispExit, openDisposalEnds, disposalNetwork } from './logic.js';
 import { P } from './protos.js';
@@ -76,7 +77,8 @@ export async function run() {
     ok('wire network', c && cableNetwork(m, c.uid).size === 9, c && String(cableNetwork(m, c.uid).size));
     // disposals
     setMode('disposal');
-    ok('disposal mode tool', S.tool === 'disposal');
+    ok('disposal mode tool', S.tool === 'entity');
+    setTool('disposal');
     S.disposal.junction = 'junction';
     drag([[-4, 0], [-1, 0], [-1, -2]]);
     const disp = (x, y) => entsAt(x, y).find(e => protoOf(e.proto)?.disp !== undefined);
@@ -421,6 +423,57 @@ export async function run() {
       ok('grid select', d1.gridList.length > 1 && d2 && d2.gridUid === other.uid && d2.tiles.length === other.tiles, `${d1.gridList.map(g => g.uid + ':' + g.tiles).join(' ')}`);
     }
     await sleep(300);
+    // texts: markup, paper editor (content, stamps, sprite mark), names and descriptions
+    const pm = TX.parseMarkup('[head=2]Заголовок[/head]\\[x] [color=#f00]к[/color] [font=Mono]y[/font][bullet/]z');
+    const k0 = pm.root.kids;
+    ok('markup parse', k0[0].tag === 'head' && k0[0].val === '2' && k0[1] === '[x] ' && k0[2].tag === 'color' && pm.unknown.join() === 'font' && k0.some(n => n.tag === 'bullet' && !n.kids.length), JSON.stringify(k0).slice(0, 160));
+    const rm = TX.renderMarkup('a[bold]b[/bold][color=red]c[/color][bullet/]');
+    ok('markup render', rm.el.textContent === 'abc · ' && rm.el.querySelector('span').style.fontWeight === 'bold', rm.el.innerHTML.slice(0, 120));
+    ok('engine color', TX.engineColor('red') === '#FF0000FF' && TX.engineColor('#a23e3e') === '#A23E3EFF' && TX.engineColor('#00be0080') === '#00BE0080');
+    ok('stamps in protos', Object.keys(P.stampNames).length > 10 && [...P.ents.values()].filter(p => p.stamp).length > 20 && P.ents.get('Paper')?.paper === 1);
+    setTool('entity'); S.sel.entity = 'Paper'; S.rotSteps = 0; S.entOpts.free = false;
+    click(7, -3);
+    const paper = entsAt(7, -3).find(e => e.proto === 'Paper');
+    ok('paper placed', !!paper);
+    if (paper) {
+      await TX.paperDialog(paper.uid);
+      const src = document.querySelector('.paper-src');
+      src.value = '[head=1]Приказ[/head]\nСтрока 2\n\n  отступ [bold]жирный[/bold]';
+      src.dispatchEvent(new Event('input'));
+      document.querySelector('.stamp-pick').click();
+      const cName = document.querySelector('.paper-left input.grow');
+      cName.value = 'Иван Петров';
+      document.querySelector('.paper-left select:not([title])').value = 'Signature';
+      [...document.querySelectorAll('.paper-left button')].find(b => b.textContent === '+ поставить').click();
+      await sleep(200);
+      ok('paper preview', document.querySelectorAll('.pv-stamp').length === 2 && document.querySelector('.pv .mk').textContent.includes('Приказ'));
+      [...document.querySelectorAll('#modalBody button')].find(b => b.textContent === 'Применить').click();
+      const pc = (S.model.ents.get(paper.uid).comps || []).find(c => c.type === 'Paper');
+      ok('paper saved', pc && pc.content.startsWith('[head=1]') && pc.stampedBy.length === 2 && pc.stampedBy[1].stampType === 'Signature' && /^#[0-9A-F]{8}$/.test(pc.stampedBy[0].stampedColor) && !!pc.stampState,
+        JSON.stringify(pc).slice(0, 200));
+      ok('paper key order', pc && Object.keys(pc).join() === 'type,stampState,stampedBy,content', pc && Object.keys(pc).join());
+      // names / descriptions: MetaData goes before Transform, undo restores
+      S.model.begin('t'); TX.setMeta(paper.uid, { name: 'Приказ №1', desc: 'Подписан: капитан' }); S.model.commit();
+      const yml2 = (await UI.api.post('/api/save', { doc: S.model.toDoc(), write: false })).replace(/\r/g, '');
+      const blk = yml2.split('- proto: Paper\n')[1] || '';
+      ok('meta saved', /- uid: \d+\n {4}components:\n {4}- type: MetaData\n {6}name: Приказ №1\n {6}desc: 'Подписан: капитан'\n {4}- type: Transform/.test(blk), JSON.stringify(blk.slice(0, 200)));
+      ok('paper folded yaml', /content: >-?\n {8}\[head=1\]Приказ\[\/head\]\n\n {8}Строка 2\n\n {10}отступ/.test(blk), JSON.stringify(blk.slice(blk.indexOf('content'), blk.indexOf('content') + 120)));
+      const back2 = await UI.api.post('/api/yaml/load', { text: yml2 });
+      const be = back2.obj.entities.find(g => g.proto === 'Paper').entities.find(x => String(x.uid) === paper.uid);
+      const bp = be.components.find(c => c.type === 'Paper');
+      ok('paper text round trip', bp.content === pc.content && bp.stampedBy[1].stampedName === 'Иван Петров', JSON.stringify(bp.content));
+      S.model.undo();
+      ok('meta undo', TX.metaOf(paper.uid).name === null && (S.model.ents.get(paper.uid).comps || []).every(c => c.type !== 'MetaData'));
+      // bulk names editor
+      await TX.namesDialog(paper.uid);
+      const row = document.querySelector('.names-row.focus');
+      const [ni, di] = row ? row.querySelectorAll('input') : [];
+      if (ni) { ni.value = 'Бумажка'; ni.dispatchEvent(new Event('input')); di.value = 'Описание'; di.dispatchEvent(new Event('input')); }
+      [...document.querySelectorAll('#modalBody button')].find(b => b.textContent.startsWith('Применить')).click();
+      ok('names dialog', TX.metaOf(paper.uid).name === 'Бумажка' && TX.metaOf(paper.uid).desc === 'Описание' && ni.placeholder.length > 0, ni && ni.placeholder);
+      UI.closeModal();
+      S.model.begin('Удаление'); S.model.removeEnt(paper.uid); S.model.commit();
+    }
     // open a real map and run validator/bake
   } catch (e) {
     log.push('EXCEPTION ' + (e.stack || e));

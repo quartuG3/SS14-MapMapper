@@ -307,7 +307,7 @@ function placeAt(i, x, y) {
   // while dragging along a line use the tile under the line, keeping the sub-tile offset of the cursor
   const [cx, cy] = placePos(i.wx, i.wy, i.ev.shiftKey);
   const px = cx + (x - i.tx), py = cy + (y - i.ty);
-  const comps = S.mode === 'atmos' ? O.atmosComps(S.sel.entity) : [];
+  const comps = specialContext() === 'atmos' ? O.atmosComps(S.sel.entity) : [];
   O.placeEnt({ proto: S.sel.entity, x: px, y: py, rot: stepsToRot(S.rotSteps), comps });
 }
 tool({
@@ -468,7 +468,7 @@ tool({
   id: 'pipe', icon: '◎', hotkey: 'p', title: 'Трубы (P): тяните ЛКМ — прокладка с автоподбором фитингов; ПКМ — удалить; Shift — L-путь от прошлой точки. Наведение подсвечивает сеть',
   options: ['pipe', 'devices'],
   down(i) {
-    if (S.mode !== 'atmos') setMode('atmos');
+    if (S.mode !== 'atmos') setMode('atmos', true);
     if (i.button === 2) { M().begin('Удаление труб'); O.erasePipe(i.tx, i.ty, S.pipe.layer); pipeDrag = { erase: true, last: [i.tx, i.ty] }; return; }
     M().begin('Трубы');
     if (i.ev.shiftKey && lastPaint) {
@@ -503,7 +503,7 @@ tool({
   id: 'disposal', icon: '♻', hotkey: 'u', options: ['disposal', 'devices'],
   title: 'Утилизационные трубы (U): тяните ЛКМ — прокладка с автоподбором (конец — DisposalTrunk, прямая, изгиб, развилка), ПКМ — удалить; Shift — L-путь от прошлой точки. Над развилкой: R / Shift+R — выход, T — тип (развилка / маршрутизатор / сигнальный), над прямой T — сортировщик (Tagger). Наведение подсвечивает сеть',
   down(i) {
-    if (S.mode !== 'disposal') setMode('disposal');
+    if (S.mode !== 'disposal') setMode('disposal', true);
     if (i.button === 2) { M().begin('Удаление утилизации'); O.eraseDisposal(i.tx, i.ty); dispDrag = { erase: true, last: [i.tx, i.ty] }; return; }
     M().begin('Утилизация');
     if (i.ev.shiftKey && lastPaint) {
@@ -545,7 +545,7 @@ tool({
   id: 'wire', icon: '⚡', hotkey: 'c', title: 'Проводка (C): тяните ЛКМ — кабель выбранного типа, ПКМ — удалить; Shift — L-путь. Наведение подсвечивает сеть',
   options: ['wire', 'devices'],
   down(i) {
-    if (S.mode !== 'wiring') setMode('wiring');
+    if (S.mode !== 'wiring') setMode('wiring', true);
     const kind = S.wire.kind;
     if (i.button === 2) { M().begin('Удаление кабеля'); O.removeCable(i.tx, i.ty, kind); wireDrag = { erase: true, last: [i.tx, i.ty] }; return; }
     M().begin('Кабель ' + kind);
@@ -758,8 +758,19 @@ tool({
 });
 
 // ===================================================================== tool switching / modes
+const SPECIAL_CTX = { wire: 'wiring', pipe: 'atmos', disposal: 'disposal' };
+let specialTool = null; // wire/pipe/disposal tool the entity tool was reached from
+// 'wiring' | 'atmos' | 'disposal' or null: the special mode whose options (pipe colour/layer, wire kind,
+// junction type, device bar) stay active, also for the entity tool after leaving a special tool
+export function specialContext() {
+  if (S.mode !== 'normal') return S.mode;
+  if (SPECIAL_CTX[S.tool]) return SPECIAL_CTX[S.tool];
+  return S.tool === 'entity' && specialTool ? SPECIAL_CTX[specialTool] : null;
+}
 export function setTool(id) {
   if (!TOOLS[id]) return;
+  if (SPECIAL_CTX[id]) specialTool = id;
+  else if (id !== 'entity') specialTool = null;
   S.tool = id;
   S.highlight = null;
   const t = TOOLS[id];
@@ -767,11 +778,10 @@ export function setTool(id) {
   emit('tool', id);
   requestDraw();
 }
-export function setMode(m) {
+// keepTool: called by the wire/pipe/disposal tools themselves, which must stay active
+export function setMode(m, keepTool) {
   S.mode = m;
-  if (m === 'wiring' && S.tool !== 'wire') setTool('wire');
-  else if (m === 'atmos' && S.tool !== 'pipe') setTool('pipe');
-  else if (m === 'disposal' && S.tool !== 'disposal') setTool('disposal');
+  if (!keepTool && S.tool !== 'entity') setTool('entity');
   emit('mode', m);
   requestDraw();
 }
