@@ -6,6 +6,7 @@ import { P } from './protos.js';
 import { h, modal, api, chips, priceCalculator } from './ui.js';
 import { requestDraw, centerOn } from './view.js';
 import { enumLabel } from './labels.js';
+import { icon } from './icons.js';
 
 const M = () => S.model;
 const local = [];          // pipelines loaded from the user's computer this session: {key, file, text}
@@ -305,8 +306,8 @@ export async function pipelinesDialog(loadMap) {
     const inputs = Object.entries(m.params || {}).map(([name, def]) => [name, paramInput(name, def || {}, initial(name, def || {}), enums)]);
     const form = h('div', {}, inputs.map(([, x]) => x.row));
     const out = h('div', {});
-    const runBtn = h('button', { class: 'on', onclick: () => start() }, '▶ Запустить');
-    const stopBtn = h('button', { disabled: true, onclick: () => running && running.stop() }, '■ Стоп');
+    const runBtn = h('button', { class: 'on', onclick: () => start() }, icon('play'), ' Запустить');
+    const stopBtn = h('button', { disabled: true, onclick: () => running && running.stop() }, icon('stop'), ' Стоп');
     pane.append(form, h('div', { class: 'row' }, runBtn, stopBtn), actions, src, out);
 
     async function start() {

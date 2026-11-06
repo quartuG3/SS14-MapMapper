@@ -9,27 +9,27 @@
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand">⛭ Shuttle Mapper</div>
+    <div class="brand"><i data-icon="logo"></i> Shuttle Mapper</div>
     <div class="menu">
       <button data-act="new" title="Новый шаттл">Новый</button>
       <button data-act="open" title="Открыть карту из репозитория (Ctrl+O)">Открыть</button>
       <button data-act="save" title="Сохранить (Ctrl+S): скачать .yml или записать в репозиторий — выбирается в диалоге">Сохранить</button>
       <button data-act="saveas" title="Сохранить как…">Сохранить как</button>
       <span class="sep"></span>
-      <button data-act="undo" title="Отменить (Ctrl+Z)">↶</button>
-      <button data-act="redo" title="Повторить (Ctrl+Y)">↷</button>
+      <button data-act="undo" title="Отменить (Ctrl+Z)"><i data-icon="undo"></i></button>
+      <button data-act="redo" title="Повторить (Ctrl+Y)"><i data-icon="redo"></i></button>
       <span class="sep"></span>
       <div class="seg" id="modeSeg" title="Режим редактора">
         <button data-mode="normal" class="on">Обычный</button>
-        <button data-mode="wiring">⚡ Проводка</button>
-        <button data-mode="atmos">◎ Атмос</button>
-        <button data-mode="disposal">♻ Утилизация</button>
+        <button data-mode="wiring"><i data-icon="zap"></i> Проводка</button>
+        <button data-mode="atmos"><i data-icon="pipe"></i> Атмос</button>
+        <button data-mode="disposal"><i data-icon="disposal"></i> Утилизация</button>
       </div>
       <span class="sep"></span>
       <div class="seg" title="Зеркалирование (кисти рисуют симметрично)">
-        <button data-act="mirrorX" id="btnMirrorX" title="Зеркало по X (вертикальная ось)">⇋ X</button>
-        <button data-act="mirrorY" id="btnMirrorY" title="Зеркало по Y (горизонтальная ось)">⇵ Y</button>
-        <button data-act="mirrorCfg" id="btnMirrorCfg" title="Настройка симметрии: оси и пресеты отражений">⚙</button>
+        <button data-act="mirrorX" id="btnMirrorX" title="Зеркало по X (вертикальная ось)"><i data-icon="flipX"></i> X</button>
+        <button data-act="mirrorY" id="btnMirrorY" title="Зеркало по Y (горизонтальная ось)"><i data-icon="flipY"></i> Y</button>
+        <button data-act="mirrorCfg" id="btnMirrorCfg" title="Настройка симметрии: оси и пресеты отражений"><i data-icon="settings"></i></button>
       </div>
       <span class="sep"></span>
       <button data-act="export" title="Экспорт запечённого PNG">Экспорт PNG</button>
@@ -41,7 +41,7 @@
       <button data-act="pipelines" title="Пайплайны: скрипты из папки pipelines/ или свои .js — проверки, массовые замены, экспорт">Пайплайны</button>
       <button data-act="names" title="Названия и описания предметов, тексты бумаг (F2)">Названия</button>
       <button data-act="vessel" title="Прототип вессела для Shipyard">Вессел</button>
-      <button data-act="help" title="Горячие клавиши (F1)">?</button>
+      <button data-act="help" title="Горячие клавиши (F1)"><i data-icon="help"></i></button>
     </div>
     <div id="docTitle"></div>
     <span id="gridPick"></span>
@@ -52,7 +52,7 @@
   <main id="stage">
     <canvas id="rulerTop"></canvas>
     <canvas id="rulerLeft"></canvas>
-    <div id="rulerCorner" title="Линейки: тяните с линейки, чтобы создать направляющую">⌗</div>
+    <div id="rulerCorner" title="Линейки: тяните с линейки, чтобы создать направляющую"><i data-icon="hash"></i></div>
     <canvas id="view" tabindex="0"></canvas>
     <div id="toolOptions"></div>
     <div id="toast"></div>
@@ -73,11 +73,16 @@
         <button data-kind="tile" class="on">Тайлы</button>
         <button data-kind="entity">Прототипы</button>
         <button data-kind="decal">Декали</button>
-        <button data-kind="custom" title="Свои палитры: Shift+клик по элементу каталога добавляет его в активную палитру">★ Свои</button>
+        <button data-kind="custom" title="Свои палитры: Shift+клик по элементу каталога добавляет его в активную палитру"><i data-icon="star"></i> Свои</button>
       </div>
       <div id="palCustomBar" style="display:none"></div>
       <div class="row">
         <input id="palSearch" type="search" placeholder="Поиск (id / имя / рус.)">
+        <div class="seg" id="palViewSeg" title="Вид палитры">
+          <button data-view="grid" title="Сетка: иконка и id"><i data-icon="grid"></i></button>
+          <button data-view="gallery" title="Галерея: крупная иконка и название"><i data-icon="gallery"></i></button>
+          <button data-view="list" title="Список: иконка, название и прототип"><i data-icon="list"></i></button>
+        </div>
       </div>
       <div class="row" id="palCatRow">
         <select id="palCat"></select>
@@ -105,7 +110,7 @@
   </footer>
 </div>
 
-<div id="modal" class="hidden"><div class="modal-box"><div class="modal-head"><span id="modalTitle"></span><button id="modalClose">✕</button></div><div id="modalBody"></div></div></div>
+<div id="modal" class="hidden"><div class="modal-box"><div class="modal-head"><span id="modalTitle"></span><button id="modalClose"><i data-icon="x"></i></button></div><div id="modalBody"></div></div></div>
 
 <script type="module" src="/js/app.js"></script>
 </body>

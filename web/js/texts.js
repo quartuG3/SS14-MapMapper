@@ -5,6 +5,7 @@ import { h, api, modal, closeModal, renderInspector } from './ui.js';
 import * as A from './assets.js';
 import { requestDraw, centerOn } from './view.js';
 import { tileOf } from './logic.js';
+import { icon } from './icons.js';
 
 const M = () => S.model;
 const enc = encodeURIComponent;
@@ -360,7 +361,7 @@ export async function paperDialog(uid) {
     lvl('head', 'Заголовок [head=1..3]', [1, 2, 3]),
     lvl('small', 'Мелкий шрифт [small=1..6]', [1, 2, 3, 4, 5, 6]),
     tb('mono', 'Моноширинный [mono]', () => wrap('[mono]', '[/mono]'), 'font-family:monospace'),
-    tb('•', 'Маркер списка [bullet/]', () => wrap('[bullet/]')),
+    tb(icon('list'), 'Маркер списка [bullet/]', () => wrap('[bullet/]')),
     colorIn, tb('цвет', 'Цвет [color=…]', () => wrap(`[color=${colorIn.value}]`, '[/color]')),
     lvl('conf', 'Неровный почерк [conf=1..10]', [1, 2, 3, 5, 7, 10]),
     tb('shift', 'Плотные строки для псевдографики [shift]', () => wrap('[shift]', '[/shift]')),
@@ -385,8 +386,8 @@ export async function paperDialog(uid) {
           h('span', { class: 'stamp-chip' + (sig ? ' sig' : ''), style: `color:${cssColor(s.stampedColor)}` }, stampText(s) || '—'),
           h('span', { class: 'muted', style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, sig ? 'подпись' : s.stampedName)),
         h('span', { style: 'display:flex;gap:4px;align-items:center;flex:none' }, col,
-          h('button', { style: 'padding:0 4px', title: 'Выше', disabled: i === 0, onclick: () => { [stamps[i - 1], stamps[i]] = [stamps[i], stamps[i - 1]]; renderStamps(); redraw(); } }, '↑'),
-          h('button', { style: 'padding:0 4px', title: 'Снять', onclick: () => { stamps.splice(i, 1); if (!stamps.length) stampState = null; renderStamps(); renderMarks(); redraw(); } }, '✕'))));
+          h('button', { style: 'padding:0 4px', title: 'Выше', disabled: i === 0, onclick: () => { [stamps[i - 1], stamps[i]] = [stamps[i], stamps[i - 1]]; renderStamps(); redraw(); } }, icon('arrowUp')),
+          h('button', { style: 'padding:0 4px', title: 'Снять', onclick: () => { stamps.splice(i, 1); if (!stamps.length) stampState = null; renderStamps(); renderMarks(); redraw(); } }, icon('x')))));
     });
     if (!stamps.length) stampList.append(h('div', { class: 'li muted' }, 'Печатей нет'));
   };
@@ -426,7 +427,7 @@ export async function paperDialog(uid) {
     if (!S.paper.custom.length) return;
     savedBox.append(h('span', { class: 'muted' }, 'Свои:'), ...S.paper.custom.map((c, i) => h('span', { class: 'saved-stamp' },
       h('button', { class: 'stamp-chip' + (c.type === 'Signature' ? ' sig' : ''), style: `color:${cssColor(c.color)}`, title: 'Поставить', onclick: () => addCustom(c) }, c.name),
-      h('button', { style: 'padding:0 3px', title: 'Забыть', onclick: () => { S.paper.custom.splice(i, 1); savePrefs(); renderSaved(); } }, '✕'))));
+      h('button', { style: 'padding:0 3px', title: 'Забыть', onclick: () => { S.paper.custom.splice(i, 1); savePrefs(); renderSaved(); } }, icon('x')))));
   };
   const customRow = h('div', { class: 'row' }, cName, cColor, penRow, cType,
     h('button', { onclick: () => { S.paper.lastName = cName.value; S.paper.lastColor = cColor.value; savePrefs(); addCustom(customStamp()); } }, '+ поставить'),
@@ -435,7 +436,7 @@ export async function paperDialog(uid) {
       if (!c.name) { toast('Введите текст печати', 'err'); return; }
       S.paper.custom = S.paper.custom.filter(x => !(x.name === c.name && x.type === c.type)).concat(c);
       savePrefs(); renderSaved();
-    } }, '★ запомнить'));
+    } }, icon('star'), ' запомнить'));
 
   // sprite mark (PaperVisualLayers.Stamp)
   const renderMarks = () => {
@@ -543,10 +544,10 @@ export async function metaSection(box, uid) {
     el.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (el === nameIn || ev.ctrlKey)) { ev.preventDefault(); el.blur(); } if (ev.key === 'Escape') { el.value = (el === nameIn ? metaOf(uid).name : metaOf(uid).desc) ?? ''; el.blur(); } });
   }
   sec.append(h('h4', {}, 'Название и описание (MetaData)'),
-    h('div', { class: 'row' }, nameIn, h('button', { title: 'Как у прототипа', onclick: () => { nameIn.value = ''; descIn.value = ''; save(); } }, '↺')),
+    h('div', { class: 'row' }, nameIn, h('button', { title: 'Как у прототипа', onclick: () => { nameIn.value = ''; descIn.value = ''; save(); } }, icon('rotateCcw'))),
     descIn,
     h('div', { class: 'muted', style: 'font-size:11px' }, 'Пустое поле — текст прототипа (серым). Enter — применить, Esc — отменить.'));
-  if (isPaper(proto)) sec.append(h('div', { class: 'row' }, h('button', { onclick: () => paperDialog(uid) }, '📝 Текст и печати бумаги'), paperSummary(uid)));
+  if (isPaper(proto)) sec.append(h('div', { class: 'row' }, h('button', { onclick: () => paperDialog(uid) }, icon('paper'), ' Текст и печати бумаги'), paperSummary(uid)));
 }
 function paperSummary(uid) {
   const pc = (compsOf(uid) || []).find(c => c.type === 'Paper');
@@ -621,8 +622,8 @@ export async function namesDialog(focusUid) {
           h('b', {}, e.proto), h('br'), h('span', { class: 'muted' }, `${e.uid}${e.holder ? ' ⊂ ' + e.holder : ''} · (${tx}, ${ty})`)),
         nameIn, descIn,
         h('span', { class: 'nm-act' },
-          p && p.paper ? h('button', { title: 'Текст и печати бумаги', onclick: () => paperDialog(e.uid) }, '📝') : null,
-          h('button', { title: 'Показать на карте', onclick: () => { closeModal(); S.inspected = e.holder || e.uid; centerOn(e.x, e.y); renderInspector(); requestDraw(); } }, '⌖')));
+          p && p.paper ? h('button', { title: 'Текст и печати бумаги', onclick: () => paperDialog(e.uid) }, icon('paper')) : null,
+          h('button', { title: 'Показать на карте', onclick: () => { closeModal(); S.inspected = e.holder || e.uid; centerOn(e.x, e.y); renderInspector(); requestDraw(); } }, icon('locate'))));
       list.append(row);
     }
     info.textContent = n > shown ? `Показано ${shown} из ${n} — уточните поиск` : `Сущностей: ${n}`;

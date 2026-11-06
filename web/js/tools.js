@@ -121,7 +121,7 @@ function remember(kind, id) {
 // ===================================================================== select
 let selDrag = null;
 tool({
-  id: 'select', icon: '⬚', hotkey: 'm', title: 'Выделение (M). Shift — добавить, Alt — вычесть, перетаскивание выделения — перемещение',
+  id: 'select', icon: 'select', hotkey: 'm', title: 'Выделение (M). Shift — добавить, Alt — вычесть, перетаскивание выделения — перемещение',
   down(i) {
     const inside = S.selection.has(key(i.tx, i.ty));
     if (inside && !i.ev.shiftKey && !i.ev.altKey && i.button === 0) {
@@ -167,7 +167,7 @@ tool({
 
 // ===================================================================== wand
 tool({
-  id: 'wand', icon: '✨', hotkey: 'w', title: 'Волшебная палочка (W): связная область одного тайла. Ctrl — по прототипу под курсором. Shift/Alt — добавить/вычесть',
+  id: 'wand', icon: 'wand', hotkey: 'w', title: 'Волшебная палочка (W): связная область одного тайла. Ctrl — по прототипу под курсором. Shift/Alt — добавить/вычесть',
   down(i) {
     let cells;
     if (i.ev.ctrlKey) {
@@ -186,7 +186,7 @@ tool({
 let inspDrag = null;
 function inspectPick(e) { S.inspected = e.uid; emit('inspect'); requestDraw(); }
 tool({
-  id: 'inspect', icon: '➤', hotkey: 'v', options: ['step'], title: 'Инспектор (V): клик — выбрать сущность (если в тайле несколько — появится список для выбора; ПКМ — всегда список), перетаскивание — переместить по шагу привязки (Shift — свободно), стрелки — сдвиг на 1 px (Shift — ¼ тайла, Ctrl — тайл), R — повернуть, Del — удалить',
+  id: 'inspect', icon: 'pointer', hotkey: 'v', options: ['step'], title: 'Инспектор (V): клик — выбрать сущность (если в тайле несколько — появится список для выбора; ПКМ — всегда список), перетаскивание — переместить по шагу привязки (Shift — свободно), стрелки — сдвиг на 1 px (Shift — ¼ тайла, Ctrl — тайл), R — повернуть, Del — удалить',
   down(i) {
     const stack = O.visibleEntsAt(i.tx, i.ty);
     if (i.button === 2) { emit('stackMenu', { ev: i.ev, ents: M().entsAt(i.tx, i.ty).map(u => M().ents.get(u)), onPick: inspectPick }); return; }
@@ -247,7 +247,7 @@ tool({
 // ===================================================================== tile brush
 let tileDrag = null;
 tool({
-  id: 'tile', icon: '▦', hotkey: 'b', title: 'Кисть тайлов (B): ЛКМ — рисовать, ПКМ — стереть, Shift — линия от прошлой точки, Ctrl+тянуть — прямоугольник. [ ] — размер',
+  id: 'tile', icon: 'tiles', hotkey: 'b', title: 'Кисть тайлов (B): ЛКМ — рисовать, ПКМ — стереть, Shift — линия от прошлой точки, Ctrl+тянуть — прямоугольник. [ ] — размер',
   options: ['brush', 'variant', 'tileRot'],
   down(i) {
     const name = S.sel.tile;
@@ -311,7 +311,7 @@ function placeAt(i, x, y) {
   O.placeEnt({ proto: S.sel.entity, x: px, y: py, rot: stepsToRot(S.rotSteps), comps });
 }
 tool({
-  id: 'entity', icon: '◈', hotkey: 'e', title: 'Размещение прототипов (E): ЛКМ — поставить/вести, ПКМ — удалить верхний, R — поворот, шаг привязки в панели (Shift — свободно, 1 px), Ctrl+тянуть — прямоугольник, Ctrl+Shift — контур',
+  id: 'entity', icon: 'entity', hotkey: 'e', title: 'Размещение прототипов (E): ЛКМ — поставить/вести, ПКМ — удалить верхний, R — поворот, шаг привязки в панели (Shift — свободно, 1 px), Ctrl+тянуть — прямоугольник, Ctrl+Shift — контур',
   options: ['rot', 'step', 'replace', 'dup', 'underlay', 'devices'],
   down(i) {
     if (i.button === 2) { M().begin('Удаление'); O.removeTopEnt(i.tx, i.ty); entDrag = { erase: true, last: [i.tx, i.ty] }; return; }
@@ -361,7 +361,7 @@ function decalAt(i, x, y) {
   O.placeDecal({ id: S.sel.decal, color: S.decal.color, angle: S.decal.angle, z: S.decal.z, cleanable: S.decal.cleanable, x: dx, y: dy });
 }
 tool({
-  id: 'decal', icon: '✎', hotkey: 'd', title: 'Декали (D): ЛКМ — поставить, ПКМ — удалить с тайла, R — поворот на 90°, Shift — без привязки',
+  id: 'decal', icon: 'decal', hotkey: 'd', title: 'Декали (D): ЛКМ — поставить, ПКМ — удалить с тайла, R — поворот на 90°, Shift — без привязки',
   options: ['decal'],
   down(i) {
     if (i.button === 2) { M().begin('Удаление декалей'); O.removeDecalsAt(i.tx, i.ty); decDrag = { erase: true, last: [i.tx, i.ty] }; return; }
@@ -394,7 +394,7 @@ tool({
 
 // ===================================================================== fill
 tool({
-  id: 'fill', icon: '🪣', hotkey: 'g', title: 'Заливка (G): заливает связную область текущим элементом палитры (тайл / прототип / декаль). Ограничивается стенами (опция)',
+  id: 'fill', icon: 'bucket', hotkey: 'g', title: 'Заливка (G): заливает связную область текущим элементом палитры (тайл / прототип / декаль). Ограничивается стенами (опция)',
   options: ['fill'],
   down(i) {
     const cells = O.flood(i.tx, i.ty, { stopAtWalls: S.fillOpts.stopAtWalls });
@@ -403,17 +403,116 @@ tool({
     fillCells(cells, i.button === 2);
   },
 });
-export function fillCells(cells, erase = false) {
+export function fillCells(cells, erase = false, label = 'Заливка', mirror = false) {
   const kind = S.palKind;
-  M().begin('Заливка');
+  M().begin(label);
   for (const k of cells) {
     const [x, y] = unkey(k);
-    if (kind === 'tile') O.paintTile(x, y, erase ? null : O.brushTileValue(), false);
-    else if (kind === 'entity' && S.sel.entity) erase ? O.removeEntsAt(x, y, false, e => e.proto === S.sel.entity) : O.placeEnt({ proto: S.sel.entity, x: x + 0.5, y: y + 0.5, rot: stepsToRot(S.rotSteps), mirror: false });
-    else if (kind === 'decal' && S.sel.decal) erase ? O.removeDecalsAt(x, y, false) : O.placeDecal({ id: S.sel.decal, color: S.decal.color, angle: S.decal.angle, z: S.decal.z, cleanable: S.decal.cleanable, x, y }, false);
+    if (kind === 'tile') O.paintTile(x, y, erase ? null : O.brushTileValue(), mirror);
+    else if (kind === 'entity' && S.sel.entity) erase ? O.removeEntsAt(x, y, mirror, e => e.proto === S.sel.entity) : O.placeEnt({ proto: S.sel.entity, x: x + 0.5, y: y + 0.5, rot: stepsToRot(S.rotSteps), mirror });
+    else if (kind === 'decal' && S.sel.decal) erase ? O.removeDecalsAt(x, y, mirror) : O.placeDecal({ id: S.sel.decal, color: S.decal.color, angle: S.decal.angle, z: S.decal.z, cleanable: S.decal.cleanable, x, y }, mirror);
   }
   M().commit();
 }
+
+// ===================================================================== shapes
+export const SHAPES = { rect: 'Прямоугольник', ellipse: 'Эллипс', line: 'Линия' };
+let shapeDrag = null;
+/** Corners of the shape: Shift — square / circle / line at 0°, 45°, 90°; Ctrl — drawn from the center. */
+function shapeCorners(d, ev) {
+  let [x0, y0] = d.start, [x1, y1] = d.cur;
+  let dx = x1 - x0, dy = y1 - y0;
+  if (ev.shiftKey) {
+    const ax = Math.abs(dx), ay = Math.abs(dy);
+    if (S.shapeOpts.kind !== 'line') { const m = Math.max(ax, ay); dx = Math.sign(dx || 1) * m; dy = Math.sign(dy || 1) * m; }
+    else if (ax > 2 * ay) dy = 0;
+    else if (ay > 2 * ax) dx = 0;
+    else { const m = Math.max(ax, ay); dx = Math.sign(dx) * m; dy = Math.sign(dy) * m; }
+  }
+  x1 = x0 + dx; y1 = y0 + dy;
+  if (ev.ctrlKey) { x0 -= dx; y0 -= dy; }
+  return [[x0, y0], [x1, y1]];
+}
+/** Tile keys of a shape. Outlines are 4-connected (airtight walls), thickness grows inward. */
+export function shapeCells(kind, a, b, filled, width = 1) {
+  const out = new Set();
+  if (kind === 'line') {
+    for (const [lx, ly] of line4(a[0], a[1], b[0], b[1])) for (const [x, y] of brushCells(lx, ly, width)) out.add(key(x, y));
+    return out;
+  }
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  const cx = (x0 + x1 + 1) / 2, cy = (y0 + y1 + 1) / 2, rx = (x1 - x0 + 1) / 2, ry = (y1 - y0 + 1) / 2;
+  const inside = kind === 'rect'
+    ? (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1
+    : (x, y) => ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1;
+  const edge = (x, y) => {
+    for (let ox = -width; ox <= width; ox++) {
+      const r = width - Math.abs(ox);
+      for (let oy = -r; oy <= r; oy++) if (!inside(x + ox, y + oy)) return true;
+    }
+    return false;
+  };
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) if (inside(x, y) && (filled || edge(x, y))) out.add(key(x, y));
+  return out;
+}
+function currentShape(d, ev) {
+  const [a, b] = shapeCorners(d, ev);
+  return { a, b, cells: shapeCells(S.shapeOpts.kind, a, b, S.shapeOpts.filled, S.brush) };
+}
+tool({
+  id: 'shape', icon: 'shapes', hotkey: 'o', options: ['shape', 'brush'],
+  title: 'Фигуры (O): прямоугольник, эллипс, линия текущим элементом палитры (тайл / прототип / декаль). ЛКМ тянуть — нарисовать, ПКМ — стереть. Shift — квадрат / круг / линия под 45°, Ctrl — от центра, Esc — отмена. Размер кисти — толщина контура',
+  down(i) {
+    const erase = i.button === 2;
+    const kind = S.palKind;
+    if (!erase && !S.sel[kind]) { toast('Выберите элемент в палитре'); return; }
+    shapeDrag = { start: [i.tx, i.ty], cur: [i.tx, i.ty], erase, ev: i.ev };
+    requestDraw();
+  },
+  move(i) {
+    if (!shapeDrag) return;
+    shapeDrag.cur = [i.tx, i.ty];
+    shapeDrag.ev = i.ev;
+    requestDraw();
+  },
+  up(i) {
+    if (!shapeDrag) return;
+    const d = shapeDrag;
+    shapeDrag = null;
+    const { cells } = currentShape(d, i.ev);
+    fillCells(cells, d.erase, (d.erase ? 'Стирание: ' : '') + SHAPES[S.shapeOpts.kind], true);
+    if (S.palKind === 'entity') reportPlaceWarnings();
+    if (!d.erase) remember(S.palKind, S.sel[S.palKind]);
+    requestDraw();
+  },
+  onKey(ev) {
+    if (ev.key === 'Escape' && shapeDrag) { shapeDrag = null; requestDraw(); return true; }
+    return false;
+  },
+  overlay(c) {
+    if (!shapeDrag) return;
+    const ev = { shiftKey: S.shiftDown, ctrlKey: shapeDrag.ev.ctrlKey };
+    const { a, b, cells } = currentShape(shapeDrag, ev);
+    const z = S.view.z;
+    const targets = new Map();
+    for (const k of cells) for (const t of O.tileTargets(...unkey(k))) targets.set(key(t.x, t.y), t);
+    const ghosts = !shapeDrag.erase && targets.size <= (S.palKind === 'entity' ? 800 : 3000);
+    c.fillStyle = shapeDrag.erase ? 'rgba(255,80,80,0.35)' : 'rgba(255,255,255,0.18)';
+    for (const t of targets.values()) {
+      if (ghosts && S.palKind === 'tile') { const v = O.xformTile(O.brushTileValue(), t); ghostTile(c, v[0], t.x, t.y, 0.5, v[3] || 0); continue; }
+      const [sx, sy] = w2s(t.x, t.y + 1);
+      c.fillRect(sx, sy, z, z);
+    }
+    if (ghosts && S.palKind === 'entity')
+      for (const k of cells) { const [x, y] = unkey(k); for (const t of O.entTargets(S.sel.entity, stepsToRot(S.rotSteps), x + 0.5, y + 0.5)) ghostSprite(c, t.proto, t.x, t.y, t.rot, 0.45); }
+    const [sx1, sy1] = w2s(Math.max(a[0], b[0]) + 1, Math.min(a[1], b[1]));
+    const w = Math.abs(b[0] - a[0]) + 1, h = Math.abs(b[1] - a[1]) + 1;
+    const txt = S.shapeOpts.kind === 'line' ? `${Math.max(w, h)} (${cells.size} тайлов)` : `${w}×${h} (${cells.size} тайлов)`;
+    c.font = '11px sans-serif';
+    c.fillStyle = 'rgba(0,0,0,0.7)'; c.fillRect(sx1 + 2, sy1 + 1, c.measureText(txt).width + 6, 15);
+    c.fillStyle = '#fff'; c.fillText(txt, sx1 + 5, sy1 + 12);
+  },
+});
 
 // ===================================================================== erase
 let eraseDrag = null;
@@ -425,7 +524,7 @@ function eraseCell(x, y) {
   }
 }
 tool({
-  id: 'erase', icon: '⌫', hotkey: 'x', title: 'Ластик (X): удаляет выбранные слои (тайлы / сущности / декали) кистью',
+  id: 'erase', icon: 'eraser', hotkey: 'x', title: 'Ластик (X): удаляет выбранные слои (тайлы / сущности / декали) кистью',
   options: ['brush', 'erase'],
   down(i) { M().begin('Ластик'); eraseCell(i.tx, i.ty); eraseDrag = [i.tx, i.ty]; },
   move(i) {
@@ -438,7 +537,7 @@ tool({
 
 // ===================================================================== pick
 tool({
-  id: 'pick', icon: '💧', hotkey: 'i', title: 'Пипетка (I): ЛКМ — взять верхний прототип (Shift — тайл, Alt — декаль). Также Alt+клик в любом инструменте',
+  id: 'pick', icon: 'pipette', hotkey: 'i', title: 'Пипетка (I): ЛКМ — взять верхний прототип (Shift — тайл, Alt — декаль). Также Alt+клик в любом инструменте',
   down(i) { pickAt(i.tx, i.ty, i.ev); },
 });
 export function pickAt(tx, ty, ev) {
@@ -465,7 +564,7 @@ export function pickAt(tx, ty, ev) {
 // ===================================================================== pipes
 let pipeDrag = null;
 tool({
-  id: 'pipe', icon: '◎', hotkey: 'p', title: 'Трубы (P): тяните ЛКМ — прокладка с автоподбором фитингов; ПКМ — удалить; Shift — L-путь от прошлой точки. Наведение подсвечивает сеть',
+  id: 'pipe', icon: 'pipe', hotkey: 'p', title: 'Трубы (P): тяните ЛКМ — прокладка с автоподбором фитингов; ПКМ — удалить; Shift — L-путь от прошлой точки. Наведение подсвечивает сеть',
   options: ['pipe', 'devices'],
   down(i) {
     if (S.mode !== 'atmos') setMode('atmos', true);
@@ -500,7 +599,7 @@ function reportDispWarnings() {
   O.dispWarnings.clear();
 }
 tool({
-  id: 'disposal', icon: '♻', hotkey: 'u', options: ['disposal', 'devices'],
+  id: 'disposal', icon: 'disposal', hotkey: 'u', options: ['disposal', 'devices'],
   title: 'Утилизационные трубы (U): тяните ЛКМ — прокладка с автоподбором (конец — DisposalTrunk, прямая, изгиб, развилка), ПКМ — удалить; Shift — L-путь от прошлой точки. Над развилкой: R / Shift+R — выход, T — тип (развилка / маршрутизатор / сигнальный), над прямой T — сортировщик (Tagger). Наведение подсвечивает сеть',
   down(i) {
     if (S.mode !== 'disposal') setMode('disposal', true);
@@ -542,7 +641,7 @@ tool({
 // ===================================================================== wires
 let wireDrag = null;
 tool({
-  id: 'wire', icon: '⚡', hotkey: 'c', title: 'Проводка (C): тяните ЛКМ — кабель выбранного типа, ПКМ — удалить; Shift — L-путь. Наведение подсвечивает сеть',
+  id: 'wire', icon: 'zap', hotkey: 'c', title: 'Проводка (C): тяните ЛКМ — кабель выбранного типа, ПКМ — удалить; Shift — L-путь. Наведение подсвечивает сеть',
   options: ['wire', 'devices'],
   down(i) {
     if (S.mode !== 'wiring') setMode('wiring', true);
@@ -584,7 +683,7 @@ function hoverNetwork(i, kind) {
 // ===================================================================== random brush
 let rndDrag = null;
 tool({
-  id: 'random', icon: '🎲', hotkey: 'n', title: 'Случайная кисть (N): рисует случайными элементами активного набора (вкладка «Рандом») с плотностью',
+  id: 'random', icon: 'dice', hotkey: 'n', title: 'Случайная кисть (N): рисует случайными элементами активного набора (вкладка «Рандом») с плотностью',
   options: ['brush', 'random'],
   down(i) {
     const set = O.activeSet();
@@ -607,7 +706,7 @@ tool({
 // ===================================================================== measure
 let meas = null;
 tool({
-  id: 'measure', icon: '📏', hotkey: 'l', title: 'Линейка (L): тяните для измерения расстояния и площади. Shift — привязка к центрам тайлов',
+  id: 'measure', icon: 'ruler', hotkey: 'l', title: 'Линейка (L): тяните для измерения расстояния и площади. Shift — привязка к центрам тайлов',
   down(i) { meas = { a: [i.wx, i.wy], b: [i.wx, i.wy], ta: [i.tx, i.ty], tb: [i.tx, i.ty], active: true }; },
   move(i) { if (meas && meas.active) { meas.b = [i.wx, i.wy]; meas.tb = [i.tx, i.ty]; requestDraw(); } },
   up() { if (meas) meas.active = false; },
@@ -632,7 +731,7 @@ tool({
 // ===================================================================== paste (transient)
 export const paste = { clip: null, xf: { rot: 0, flipX: false, flipY: false }, prevTool: 'select' };
 tool({
-  id: 'paste', icon: '📋', title: 'Вставка: ЛКМ — поставить, R — поворот, H/J — отражение, Esc/ПКМ — выход', hidden: true,
+  id: 'paste', icon: 'clipboard', title: 'Вставка: ЛКМ — поставить, R — поворот, H/J — отражение, Esc/ПКМ — выход', hidden: true,
   current() { return O.transformClip(paste.clip, paste.xf); },
   anchor(c) { return S.hoverTile ? [S.hoverTile[0] - Math.floor((c.w - 1) / 2), S.hoverTile[1] - Math.floor((c.h - 1) / 2)] : null; },
   down(i) {
@@ -675,7 +774,7 @@ function pickFrom(i, cands, cb) {
   else if (cands.length > 1) emit('stackMenu', { ev: i.ev, ents: cands, onPick: cb });
 }
 tool({
-  id: 'link', icon: '🔗', hotkey: 'k', options: ['link'],
+  id: 'link', icon: 'link', hotkey: 'k', options: ['link'],
   title: 'Связи (K): «Сеть устройств» — клик по воздушной/пожарной сигнализации, затем по устройствам (вентиляции, скрубберы, датчики, пожарные шлюзы) — добавить/убрать. «Сигналы» — клик по источнику (кнопка, рычаг, датчик), затем по приёмнику — выбор портов. ПКМ / Esc — сброс',
   down(i) {
     const model = M();
@@ -746,7 +845,7 @@ export function drawLinks(c, focus) {
 // ===================================================================== pan
 let panDrag = null;
 tool({
-  id: 'pan', icon: '✋', hotkey: 'h', title: 'Перемещение вида (H, или пробел / средняя кнопка)',
+  id: 'pan', icon: 'hand', hotkey: 'h', title: 'Перемещение вида (H, или пробел / средняя кнопка)',
   down(i) { panDrag = [i.sx, i.sy, S.view.cx, S.view.cy]; },
   move(i) {
     if (!panDrag) return;
@@ -795,5 +894,5 @@ export function setMode(m, keepTool) {
   emit('mode', m);
   requestDraw();
 }
-export const TOOL_ORDER = ['select', 'wand', 'inspect', null, 'tile', 'entity', 'decal', 'fill', 'erase', 'pick', null, 'wire', 'pipe', 'disposal', 'link', null, 'random', 'measure', 'pan'];
+export const TOOL_ORDER = ['select', 'wand', 'inspect', null, 'tile', 'entity', 'decal', 'fill', 'shape', 'erase', 'pick', null, 'wire', 'pipe', 'disposal', 'link', null, 'random', 'measure', 'pan'];
 export { entLayer };

@@ -11,6 +11,7 @@ import { activePreset } from './symmetry.js';
 import { loadPalettes } from './palettes.js';
 import { pipelinesDialog } from './pipelines.js';
 import { setOnProgress } from './assets.js';
+import { hydrateIcons } from './icons.js';
 
 const $ = id => document.getElementById(id);
 const api = UI.api;
@@ -293,7 +294,7 @@ const KEYMAP = {};
 function bindKeys() {
   for (const [id, t] of Object.entries(TOOLS)) if (t.hotkey) KEYMAP[t.hotkey] = id;
   // russian layout aliases
-  const ru = { k: 'л', m: 'ь', w: 'ц', v: 'м', b: 'и', e: 'у', d: 'в', g: 'п', x: 'ч', i: 'ш', p: 'з', c: 'с', n: 'т', l: 'д', h: 'р', u: 'г' };
+  const ru = { k: 'л', m: 'ь', w: 'ц', v: 'м', b: 'и', e: 'у', d: 'в', g: 'п', x: 'ч', i: 'ш', p: 'з', c: 'с', n: 'т', l: 'д', h: 'р', u: 'г', o: 'щ' };
   for (const [en, r] of Object.entries(ru)) if (KEYMAP[en]) KEYMAP[r] = KEYMAP[en];
 
   window.addEventListener('keydown', ev => {
@@ -342,8 +343,8 @@ function bindKeys() {
     if (code === 'Digit3') { setMode('atmos'); return; }
     if (code === 'Digit4') { setMode('disposal'); return; }
     if (code === 'KeyR') {
-      if (S.tool === 'tile' || (S.tool === 'fill' && S.fillOpts.mode === 'tile')) { rotateBrushTile(ev.shiftKey ? 3 : 1); UI.renderToolOptions(); return; }
-      if (S.tool === 'decal') S.decal.angle = (S.decal.angle + (ev.shiftKey ? -1 : 1) * Math.PI / 2) % (2 * Math.PI);
+      if (S.tool === 'tile' || (S.tool === 'fill' && S.fillOpts.mode === 'tile') || (S.tool === 'shape' && S.palKind === 'tile')) { rotateBrushTile(ev.shiftKey ? 3 : 1); UI.renderToolOptions(); return; }
+      if (S.tool === 'decal' || (S.tool === 'shape' && S.palKind === 'decal')) S.decal.angle = (S.decal.angle + (ev.shiftKey ? -1 : 1) * Math.PI / 2) % (2 * Math.PI);
       else S.rotSteps = (S.rotSteps + (ev.shiftKey ? 3 : 1)) % 4;
       UI.renderToolOptions(); requestDraw(); return;
     }
@@ -391,7 +392,7 @@ function bindMenu() {
     $('btnMirrorX').classList.toggle('on', S.mirror.x);
     $('btnMirrorY').classList.toggle('on', S.mirror.y);
     const p = activePreset();
-    $('btnMirrorCfg').textContent = p ? '⚙•' : '⚙';
+    $('btnMirrorCfg').classList.toggle('dot', !!p);
     $('btnMirrorCfg').title = 'Настройка симметрии: оси и пресеты отражений' + (p ? `
 Активный пресет: ${p.name}` : '');
   });
@@ -433,6 +434,7 @@ window.addEventListener('unhandledrejection', e => toast('JS: ' + (e.reason && (
 async function main() {
   loadPrefs();
   initView();
+  hydrateIcons();
   UI.buildToolbar();
   UI.buildTabs();
   bindCanvas();

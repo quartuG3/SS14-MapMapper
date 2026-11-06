@@ -1,6 +1,6 @@
 // Automated smoke test, run with ?selftest=1. Drives tools with synthetic pointer events.
 import { S } from './state.js';
-import { setTool, setMode, startPaste, rotateBrushTile, TOOLS } from './tools.js';
+import { setTool, setMode, startPaste, rotateBrushTile, TOOLS, shapeCells } from './tools.js';
 import * as PL from './palettes.js';
 import * as RD from './radar.js';
 import { w2s, bake } from './view.js';
@@ -315,6 +315,19 @@ export async function run() {
     setTool('fill'); S.palKind = 'tile'; S.sel.tile = 'FloorDark';
     click(1, 0);
     ok('fill inside walls', m.getTile(1, 0)?.[0] === 'FloorDark' && m.getTile(-6, 0)?.[0] !== 'FloorDark');
+    // shapes
+    ok('shape rect outline', shapeCells('rect', [0, 0], [4, 3], false).size === 14 && shapeCells('rect', [0, 0], [4, 3], true).size === 20);
+    ok('shape thick outline', shapeCells('rect', [0, 0], [5, 5], false, 2).size === 32);
+    ok('shape circle', shapeCells('ellipse', [0, 0], [6, 6], true).size === 37 && !shapeCells('ellipse', [0, 0], [6, 6], true).has(key(0, 0)));
+    ok('shape line', shapeCells('line', [0, 0], [5, 0], false).size === 6);
+    const mx = S.mirror.x, my = S.mirror.y;
+    S.mirror.x = S.mirror.y = false;
+    setTool('shape'); S.palKind = 'tile'; S.sel.tile = 'FloorWhite'; S.brush = 1; S.shapeOpts.kind = 'rect'; S.shapeOpts.filled = false;
+    drag([[30, 30], [32, 31], [34, 32]]);
+    ok('shape tool rect', m.getTile(30, 30)?.[0] === 'FloorWhite' && m.getTile(34, 32)?.[0] === 'FloorWhite' && m.getTile(32, 31)?.[0] !== 'FloorWhite');
+    drag([[30, 30], [34, 32]], { button: 2 });
+    ok('shape tool erase', !m.getTile(30, 30) && !m.getTile(34, 31));
+    S.mirror.x = mx; S.mirror.y = my;
     // random
     S.random.sets = [{ name: 't', kind: 'entity', items: [{ id: 'PottedPlant1', w: 1 }, { id: 'PottedPlant2', w: 2 }], randRot: true }];
     S.random.active = 0; S.random.density = 100; S.random.fixedSeed = true;

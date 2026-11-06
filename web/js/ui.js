@@ -12,6 +12,7 @@ import * as TL from './tools.js';
 import * as L from './links.js';
 import { requestDraw, centerOn, fitToContent, bake, size as viewSize, s2w } from './view.js';
 import { validate, stats, vesselYaml, findReplace } from './features.js';
+import { icon } from './icons.js';
 import { key, unkey, tileOf, rotSteps, stepsToRot, normAngle, HALF_PI, leakTiles, pipeLayerOf, pipeColorOf, hasComp } from './logic.js';
 
 export function h(tag, attrs = {}, ...kids) {
@@ -62,7 +63,7 @@ export function buildToolbar() {
   for (const id of TOOL_ORDER) {
     if (!id) { tb.append(h('div', { class: 'tsep' })); continue; }
     const t = TOOLS[id];
-    tb.append(h('button', { 'data-tool': id, title: t.title, onclick: () => setTool(id) }, t.icon));
+    tb.append(h('button', { 'data-tool': id, title: t.title, onclick: () => setTool(id) }, icon(t.icon)));
   }
   on('tool', id => {
     for (const b of tb.querySelectorAll('button')) b.classList.toggle('on', b.dataset.tool === id);
@@ -100,15 +101,15 @@ export function renderToolOptions() {
     const tp = P.tiles.get(S.sel.tile);
     const label = tp && tp.rotmir ? ['0°', '90°', '180°', '270°'][(S.tileOpts.rm || 0) % 4] + ((S.tileOpts.rm || 0) >= 4 ? ' отр.' : '') : S.sel.tile;
     add(h('span', { title: 'Фигурные тайлы (клинья, углы, HalfTilt) переключаются на тайл другой ориентации, тайлы с allowRotationMirror поворачиваются' }, 'Поворот тайла:'),
-      h('button', { onclick: () => { TL.rotateBrushTile(3); renderToolOptions(); }, title: 'Shift+R' }, '↻'),
+      h('button', { onclick: () => { TL.rotateBrushTile(3); renderToolOptions(); }, title: 'Shift+R' }, icon('rotateCw')),
       h('b', {}, label),
-      h('button', { onclick: () => { TL.rotateBrushTile(1); renderToolOptions(); }, title: 'R' }, '↺'));
+      h('button', { onclick: () => { TL.rotateBrushTile(1); renderToolOptions(); }, title: 'R' }, icon('rotateCcw')));
   }
   if (opts.includes('rot')) {
     add(h('span', {}, 'Поворот: '),
-      h('button', { onclick: () => { S.rotSteps = (S.rotSteps + 3) % 4; renderToolOptions(); requestDraw(); }, title: 'Shift+R' }, '↻'),
+      h('button', { onclick: () => { S.rotSteps = (S.rotSteps + 3) % 4; renderToolOptions(); requestDraw(); }, title: 'Shift+R' }, icon('rotateCw')),
       h('b', {}, ['↓ Юг 0°', '→ Восток 90°', '↑ Север 180°', '← Запад 270°'][S.rotSteps]),
-      h('button', { onclick: () => { S.rotSteps = (S.rotSteps + 1) % 4; renderToolOptions(); requestDraw(); }, title: 'R' }, '↺'));
+      h('button', { onclick: () => { S.rotSteps = (S.rotSteps + 1) % 4; renderToolOptions(); requestDraw(); }, title: 'R' }, icon('rotateCcw')));
   }
   if (opts.includes('step')) {
     const steps = [['center', 'центр тайла'], ['0.5', '½ тайла'], ['0.25', '¼ тайла'], ['0.125', '⅛ тайла'], ['0.03125', '1 px (свободно)']];
@@ -135,7 +136,7 @@ export function renderToolOptions() {
       add(h('span', {}, 'Выбрано: ', h('b', {}, holder.proto), ` (${holder.uid})`));
       if (lk.mode === 'list') add(
         h('span', { class: 'muted' }, `устройств: ${L.listDevices(holder).length}`),
-        h('button', { onclick: () => { const r = L.autoLinkRoom(holder.uid); toast(`Добавлено: ${r.added} (комната ${r.room.size} тайлов)`, 'ok'); renderToolOptions(); requestDraw(); } }, '⚙ Автосвязь комнаты'));
+        h('button', { onclick: () => { const r = L.autoLinkRoom(holder.uid); toast(`Добавлено: ${r.added} (комната ${r.room.size} тайлов)`, 'ok'); renderToolOptions(); requestDraw(); } }, icon('wand'), ' Автосвязь комнаты'));
       add(h('button', { onclick: () => { lk.holder = null; renderToolOptions(); requestDraw(); } }, 'Сбросить (Esc)'));
     } else add(h('span', { class: 'muted' }, lk.mode === 'list' ? 'Кликните по AirAlarm / FireAlarm, затем по устройствам' : 'Кликните по источнику (кнопка, рычаг…), затем по приёмнику'));
   }
@@ -145,11 +146,17 @@ export function renderToolOptions() {
     add(h('label', {}, 'Цвет', h('input', { type: 'color', value: S.decal.color.slice(0, 7), oninput: e => { S.decal.color = e.target.value.toUpperCase() + S.decal.color.slice(7, 9).padEnd(2, 'F'); savePrefs(); requestDraw(); } })),
       h('label', {}, 'α', h('input', { type: 'range', min: 0, max: 255, value: parseInt(S.decal.color.slice(7, 9) || 'FF', 16), oninput: e => { S.decal.color = S.decal.color.slice(0, 7) + (+e.target.value).toString(16).padStart(2, '0').toUpperCase(); savePrefs(); } })),
       chk('привязка', S.decal, 'snap'),
-      h('button', { onclick: () => { S.decal.angle = normAngle(S.decal.angle + HALF_PI); renderToolOptions(); requestDraw(); } }, `↺ ${Math.round(S.decal.angle * 180 / Math.PI)}°`),
+      h('button', { onclick: () => { S.decal.angle = normAngle(S.decal.angle + HALF_PI); renderToolOptions(); requestDraw(); } }, icon('rotateCcw'), ` ${Math.round(S.decal.angle * 180 / Math.PI)}°`),
       h('label', {}, 'z', h('input', { type: 'number', value: S.decal.z, style: 'width:50px', onchange: e => { S.decal.z = +e.target.value | 0; savePrefs(); } })),
       chk('смываемая', S.decal, 'cleanable'));
   }
   if (opts.includes('fill')) add(chk('не через стены', S.fillOpts, 'stopAtWalls'), h('span', { class: 'muted' }, `заливка: ${({ tile: 'тайл', entity: 'прототип', decal: 'декаль' })[S.palKind]} (ПКМ — стереть)`));
+  if (opts.includes('shape')) {
+    add(h('div', { class: 'seg' }, ...Object.entries(TL.SHAPES).map(([k, n]) =>
+      h('button', { class: S.shapeOpts.kind === k ? 'on' : '', title: n, onclick: () => { S.shapeOpts.kind = k; savePrefs(); renderToolOptions(); } }, icon(k), ' ' + n))));
+    if (S.shapeOpts.kind !== 'line') add(chk('залитая', S.shapeOpts, 'filled'));
+    add(h('span', { class: 'muted' }, `рисует: ${({ tile: 'тайл', entity: 'прототип', decal: 'декаль' })[S.palKind]} · кисть — толщина · Shift — ${S.shapeOpts.kind === 'line' ? '0°/45°/90°' : 'квадрат/круг'}, Ctrl — от центра`));
+  }
   if (opts.includes('erase')) add(chk('тайлы', S.eraseOpts, 'tiles'), chk('сущности', S.eraseOpts, 'ents'), chk('только верхнюю', S.eraseOpts, 'top'), chk('декали', S.eraseOpts, 'decals'));
   if (opts.includes('pipe')) {
     const sel = h('select', { onchange: e => { S.pipe.layer = e.target.value; savePrefs(); toRouting('pipe'); } },
@@ -218,7 +225,7 @@ function devicesFor(mode) {
 }
 function deviceBar(add, mode) {
   const bar = h('div', { style: 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%' });
-  const back = { wiring: ['wire', '⚡ к кабелям'], atmos: ['pipe', '◎ к трубам'], disposal: ['disposal', '♻ к утилизации'] }[mode];
+  const back = { wiring: ['wire', 'к кабелям'], atmos: ['pipe', 'к трубам'], disposal: ['disposal', 'к утилизации'] }[mode];
   if (S.tool === 'entity') bar.append(h('button', { onclick: () => setTool(back[0]) }, back[1]));
   for (const [name, list] of devicesFor(mode)) {
     const grp = h('span', { style: 'display:inline-flex;gap:1px;align-items:center;border:1px solid var(--line);border-radius:4px;padding:1px 3px' }, h('span', { class: 'muted', style: 'font-size:11px;margin-right:2px' }, name));
@@ -250,14 +257,14 @@ function selectionActions(add) {
     h('button', { onclick: () => selAction('outline'), title: 'Shift+F — контур внутри текущим прототипом' }, 'Контур'),
     h('button', { onclick: () => selAction('shell'), title: 'Обвести снаружи текущим прототипом (стены) с подложкой Plating' }, 'Оболочка'),
     h('button', { onclick: () => selAction('rot'), title: 'Ctrl+R — повернуть на 90°' }, '⟲90'),
-    h('button', { onclick: () => selAction('flipX'), title: 'Shift+H — отразить по X' }, '⇋'),
-    h('button', { onclick: () => selAction('flipY'), title: 'Shift+J — отразить по Y' }, '⇵'),
-    h('button', { onclick: () => selAction('mirrorCopy'), title: 'Скопировать выделение на другую сторону осей зеркала' }, '⇋ копия'),
+    h('button', { onclick: () => selAction('flipX'), title: 'Shift+H — отразить по X' }, icon('flipX')),
+    h('button', { onclick: () => selAction('flipY'), title: 'Shift+J — отразить по Y' }, icon('flipY')),
+    h('button', { onclick: () => selAction('mirrorCopy'), title: 'Скопировать выделение на другую сторону осей зеркала' }, icon('flipX'), ' копия'),
     h('button', { onclick: () => selAction('prefab'), title: 'Сохранить как префаб' }, 'Префаб'));
   add(h('span', { class: 'sep' }));
-  add(h('button', { onclick: () => selAction('scatter'), title: 'Рассыпать активный набор рандома' }, '🎲 Рассыпать'),
-    h('button', { onclick: () => selAction('variants'), title: 'Случайные варианты тайлов' }, '🎲 Варианты'),
-    h('button', { onclick: () => selAction('rotations'), title: 'Случайные повороты сущностей' }, '🎲 Повороты'));
+  add(h('button', { onclick: () => selAction('scatter'), title: 'Рассыпать активный набор рандома' }, icon('dice'), ' Рассыпать'),
+    h('button', { onclick: () => selAction('variants'), title: 'Случайные варианты тайлов' }, icon('dice'), ' Варианты'),
+    h('button', { onclick: () => selAction('rotations'), title: 'Случайные повороты сущностей' }, icon('dice'), ' Повороты'));
 }
 
 export function moveSelection(dx, dy) {
@@ -363,6 +370,8 @@ export function buildPalette() {
   $('palSearch').oninput = () => renderPalette();
   $('palCat').onchange = () => renderPalette();
   $('palHidden').onchange = () => renderPalette();
+  $('palViewSeg').querySelectorAll('button').forEach(b => b.onclick = () => { S.palOpts.view = b.dataset.view; savePrefs(); applyPalView(); renderPalette(); });
+  applyPalView();
   palObserver = new IntersectionObserver(entries => {
     for (const en of entries) if (en.isIntersecting) { const img = en.target; if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; } palObserver.unobserve(img); }
   }, { root: $('palGrid') });
@@ -379,7 +388,7 @@ export function buildPalette() {
 const PAL_TOOL = { tile: 'tile', entity: 'entity', decal: 'decal' };
 function toolForPalKind(kind) {
   const tool = PAL_TOOL[kind];
-  if (tool && S.tool !== tool && !['fill', 'select', 'wand'].includes(S.tool)) setTool(tool);
+  if (tool && S.tool !== tool && !['fill', 'shape', 'select', 'wand'].includes(S.tool)) setTool(tool);
 }
 export function setPalKind(kind, keepSearch) {
   // palView is what the tab shows ('custom' = own palettes), palKind the kind of the current element
@@ -414,7 +423,7 @@ function selectItem(kind, id, ev) {
   if (kind === 'tile') S.tileOpts.rm = 0;
   savePrefs();
   const tool = kind === 'tile' ? 'tile' : kind === 'decal' ? 'decal' : TL.routingToolFor(id) || 'entity';
-  if (!['fill', 'random', 'select', 'wand'].includes(S.tool) || kind !== S.palKind) setTool(tool);
+  if (!['fill', 'shape', 'random', 'select', 'wand'].includes(S.tool) || kind !== S.palKind) setTool(tool);
   S.palKind = kind;
   markSelected(kind, id);
   showInfo(kind, id);
@@ -434,14 +443,27 @@ function showInfo(kind, id) {
   const inPal = PL.hasItem(pal, kind, id);
   $('palInfo').innerHTML = '';
   $('palInfo').append(h('button', { style: 'float:right;padding:0 5px', title: pal ? `${inPal ? 'Убрать из' : 'Добавить в'} палитру «${pal.name}» (Shift+клик)` : 'Создать свою палитру с этим элементом (Shift+клик)',
-    onclick: () => togglePalItem(kind, id) }, inPal ? '★' : '☆'), h('b', {}, id), h('br'), displayName(kind, id) + extra);
+    onclick: () => togglePalItem(kind, id) }, icon(inPal ? 'starFilled' : 'star')), h('b', {}, id), h('br'), displayName(kind, id) + extra);
+}
+const PAL_VIEWS = ['grid', 'gallery', 'list'];
+function applyPalView() {
+  if (!PAL_VIEWS.includes(S.palOpts.view)) S.palOpts.view = 'grid';
+  const v = S.palOpts.view;
+  $('palViewSeg').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  for (const m of PAL_VIEWS) $('palGrid').classList.toggle('view-' + m, m === v);
 }
 function palItem(kind, p, small) {
   const set = O.activeSet();
   const inset = set && set.kind === kind && set.items.some(i => i.id === p.id);
   const inpal = PL.hasItem(PL.activePalette(), kind, p.id);
-  const el = h('div', { class: 'pi' + (selectedId(kind) === p.id ? ' sel' : '') + (inset ? ' inset' : '') + (inpal ? ' inpal' : ''), title: displayName(kind, p.id) + '\n' + p.id + '\nCtrl+клик — в набор рандома\nShift+клик — в свою палитру', onclick: ev => selectItem(kind, p.id, ev) },
-    itemImg(kind, p.id), small ? null : h('div', { class: 'lbl' }, p.id));
+  const view = small ? 'grid' : S.palOpts.view;
+  const name = displayName(kind, p.id);
+  const label = small ? null
+    : view === 'gallery' ? h('div', { class: 'lbl' }, name)
+    : view === 'list' ? h('div', { class: 'txt' }, h('div', { class: 'nm' }, name), h('div', { class: 'pid' }, p.id))
+    : h('div', { class: 'lbl' }, p.id);
+  const el = h('div', { class: 'pi' + (selectedId(kind) === p.id ? ' sel' : '') + (inset ? ' inset' : '') + (inpal ? ' inpal' : ''), title: name + '\n' + p.id + '\nCtrl+клик — в набор рандома\nShift+клик — в свою палитру', onclick: ev => selectItem(kind, p.id, ev) },
+    itemImg(kind, p.id), label);
   el.dataset.id = p.id;
   el.dataset.kind = kind;
   return el;
@@ -570,19 +592,19 @@ function renderCustomBar() {
         if (!n || !n.trim() || n.trim() === act.name) return;
         act.name = PL.uniqueName(n.trim(), act);
         persistPalette(act).then(refreshPaletteViews);
-      } }, '✎'),
+      } }, icon('pencil')),
       h('button', { class: 'danger', title: 'Удалить палитру (файл в palettes/)', disabled: !act, onclick: async () => {
         if (!confirm(`Удалить палитру «${act.name}»?`)) return;
         try { await PL.deletePalette(act); } catch (e) { toast(e.message, 'err'); }
         refreshPaletteViews();
-      } }, '✕')),
+      } }, icon('x'))),
     h('div', { class: 'row' },
       h('button', { disabled: !act || !cur || PL.hasItem(act, S.palKind, cur), title: `Добавить текущий элемент: ${cur || '—'}`, onclick: () => togglePalItem(S.palKind, cur) }, '+ текущий'),
       h('button', { disabled: !act || !S.selection.size, title: 'Добавить тайлы, прототипы и декали из выделения на карте', onclick: () => addSelectionToPalette(act) }, '+ из выделения'),
       h('span', { class: 'sep' }),
-      h('button', { disabled: !act, title: 'Скачать палитру .json в «Загрузки»', onclick: () => downloadJson(PL.paletteToFile(act), fileName(act.name)) }, '⬇'),
-      h('button', { disabled: !S.palettes.length, title: 'Скачать все палитры одним файлом', onclick: () => downloadJson(PL.bundleToFile(S.palettes), fileName('palettes')) }, '⬇ все'),
-      h('button', { title: 'Загрузить палитры из .json (одна палитра или файл «все»)', onclick: importPalettes }, '⬆ импорт')));
+      h('button', { disabled: !act, title: 'Скачать палитру .json в «Загрузки»', onclick: () => downloadJson(PL.paletteToFile(act), fileName(act.name)) }, icon('download')),
+      h('button', { disabled: !S.palettes.length, title: 'Скачать все палитры одним файлом', onclick: () => downloadJson(PL.bundleToFile(S.palettes), fileName('palettes')) }, icon('download'), ' все'),
+      h('button', { title: 'Загрузить палитры из .json (одна палитра или файл «все»)', onclick: importPalettes }, icon('upload'), ' импорт')));
 }
 let palDrag = null;
 function renderCustomPalette() {
@@ -669,7 +691,7 @@ function entRow(e, { current = false, extra = [], onclick } = {}) {
 }
 const comp = (e, type) => (e.comps || []).find(c => c.type === type);
 const goTo = uid => { S.inspected = uid; renderInspector(); requestDraw(); };
-const xBtn = (title, fn) => h('button', { style: 'padding:0 4px', title, onclick: ev => { ev.stopPropagation(); fn(); } }, '✕');
+const xBtn = (title, fn) => h('button', { style: 'padding:0 4px', title, onclick: ev => { ev.stopPropagation(); fn(); } }, icon('x'));
 
 export async function renderInspector() {
   const box = $('tab-inspector');
@@ -703,7 +725,7 @@ export async function renderInspector() {
     h('table', { class: 'kv' },
       h('tr', {}, h('td', {}, 'Прототип'), h('td', {}, h('b', {}, e.proto), h('br'), p ? displayName('entity', e.proto) : h('span', { style: 'color:var(--bad)' }, 'неизвестен'))),
       h('tr', {}, h('td', {}, 'UID'), h('td', {}, e.uid)),
-      h('tr', {}, h('td', {}, 'Позиция'), h('td', {}, posX, ' ', posY, ' ', h('button', { title: 'В центр тайла', onclick: () => { posX.value = tx + 0.5; posY.value = ty + 0.5; apply(); } }, '⌖'))),
+      h('tr', {}, h('td', {}, 'Позиция'), h('td', {}, posX, ' ', posY, ' ', h('button', { title: 'В центр тайла', onclick: () => { posX.value = tx + 0.5; posY.value = ty + 0.5; apply(); } }, icon('locate')))),
       h('tr', {}, h('td', {}, 'Поворот, °'), h('td', {}, rotIn)),
       p && p.pipe !== undefined ? h('tr', {}, h('td', {}, 'Труба'), h('td', {}, `${pipeLayerOf(e)} · ${pipeColorOf(e) || '—'}`)) : null,
       p ? h('tr', {}, h('td', {}, 'Слой отрисовки'), h('td', {}, String(p.dd))) : null),
@@ -753,11 +775,11 @@ function linksSection(box, e) {
     if (!devs.length) l.append(h('div', { class: 'li muted' }, 'Нет подключённых устройств'));
     parts.push(h('h4', {}, `Сеть устройств (DeviceList): ${devs.length}`), l,
       h('div', { class: 'row' },
-        h('button', { onclick: () => { TL.link.mode = 'list'; TL.link.holder = e.uid; setTool('link'); } }, '🔗 Добавлять кликами'),
+        h('button', { onclick: () => { TL.link.mode = 'list'; TL.link.holder = e.uid; setTool('link'); } }, icon('link'), ' Добавлять кликами'),
         h('button', {
           title: 'Добавить все подходящие устройства комнаты перед сигнализацией (вентиляции, скрубберы, датчики, пожарные шлюзы в проёмах)',
           onclick: () => { const r = L.autoLinkRoom(e.uid); toast(`Комната: ${r.room.size} тайлов, добавлено устройств: ${r.added}`, 'ok'); renderInspector(); requestDraw(); },
-        }, '⚙ Автосвязь комнаты'),
+        }, icon('wand'), ' Автосвязь комнаты'),
         devs.length ? h('button', { class: 'danger', onclick: () => { model.begin('Очистить сеть'); for (const d of devs) L.setListMember(e.uid, d, false); model.commit(); renderInspector(); requestDraw(); } }, 'Очистить') : null));
   }
   const lists = L.memberOf(e).filter(u => model.ents.has(u));
@@ -773,12 +795,12 @@ function linksSection(box, e) {
       if (!se) continue;
       l.append(entRow(se, { onclick: () => goTo(sink),
         extra: [h('span', { class: 'muted', style: 'font-size:11px' }, (pairs || []).map(x => `${x[0]}→${x[1]}`).join(', ')),
-          h('button', { style: 'padding:0 4px', title: 'Порты', onclick: ev => { ev.stopPropagation(); portsDialog({ src: e.uid, sink }); } }, '✎'),
+          h('button', { style: 'padding:0 4px', title: 'Порты', onclick: ev => { ev.stopPropagation(); portsDialog({ src: e.uid, sink }); } }, icon('pencil')),
           xBtn('Разорвать', () => { L.setPairs(e.uid, sink, []); renderInspector(); requestDraw(); })] }));
     }
     if (!Object.keys(lp).length) l.append(h('div', { class: 'li muted' }, 'Нет связей'));
     parts.push(h('h4', {}, `Исходящие сигналы (${L.sourcePorts(e).join(', ')})`), l,
-      h('div', { class: 'row' }, h('button', { onclick: () => { TL.link.mode = 'signal'; TL.link.holder = e.uid; setTool('link'); } }, '🔗 Связать кликами')));
+      h('div', { class: 'row' }, h('button', { onclick: () => { TL.link.mode = 'signal'; TL.link.holder = e.uid; setTool('link'); } }, icon('link'), ' Связать кликами')));
   }
   if (L.sinkPorts(e).length) {
     const inc = [...model.ents.values()].filter(o => L.linkedPorts(o)[e.uid]);
@@ -876,9 +898,9 @@ function containersSection(box, e) {
       l.append(entRow({ uid: u, proto: o.proto }, {
         extra: [nested ? h('span', { class: 'muted', title: 'вложенных сущностей' }, `+${nested}`) : null,
           TX.metaOf(u).name ? h('span', { class: 'muted', title: 'Своё название (MetaData)' }, '«' + TX.metaOf(u).name + '»') : null,
-          TX.isPaper(o.proto) ? h('button', { style: 'padding:0 4px', title: 'Текст и печати бумаги', onclick: ev => { ev.stopPropagation(); TX.paperDialog(u); } }, '📝') : null,
+          TX.isPaper(o.proto) ? h('button', { style: 'padding:0 4px', title: 'Текст и печати бумаги', onclick: ev => { ev.stopPropagation(); TX.paperDialog(u); } }, icon('paper')) : null,
           h('button', { style: 'padding:0 4px', title: 'Название и описание (F2)', onclick: ev => { ev.stopPropagation(); TX.namesDialog(u); } }, 'Aa'),
-          h('button', { style: 'padding:0 4px', title: 'Компоненты (YAML)', onclick: () => editOtherDialog(u) }, '✎'),
+          h('button', { style: 'padding:0 4px', title: 'Компоненты (YAML)', onclick: () => editOtherDialog(u) }, icon('pencil')),
           xBtn('Удалить', () => { removeFromContainer(e.uid, c.name, u); renderInspector(); })] }));
     }
     if (!c.ents.length) l.append(h('div', { class: 'li muted' }, 'пусто'));
@@ -890,7 +912,7 @@ function containersSection(box, e) {
         h('button', { class: 'danger', style: 'padding:0 4px', title: 'Удалить контейнер со всем содержимым', onclick: () => {
           if (!confirm(`Удалить контейнер ${c.name} и ${c.ents.length} предметов?`)) return;
           model.begin('Удалить контейнер'); for (const u of c.ents) removeContained(u); updateContainer(e.uid, c.name, () => null); model.commit(); renderInspector();
-        } }, '✕')),
+        } }, icon('x'))),
       l,
       h('div', { class: 'row' }, inp, dl, cnt, h('button', { onclick: () => {
         const id = inp.value.trim();
@@ -1028,10 +1050,10 @@ export function renderLayers() {
   box.append(h('div', { class: 'row' }, h('button', { onclick: fitToContent }, 'Показать всё (Home)'), h('button', { onclick: () => centerOn(0.5, 0.5) }, 'К началу координат')));
   box.append(h('h4', {}, 'Направляющие'));
   const gl = h('div', {});
-  for (const [i, g] of S.guides.entries()) gl.append(h('div', { class: 'row' }, `${g.axis === 'x' ? 'Вертикаль x' : 'Горизонталь y'} = ${g.v}`, h('button', { onclick: () => { S.guides.splice(i, 1); renderLayers(); requestDraw(); } }, '✕')));
+  for (const [i, g] of S.guides.entries()) gl.append(h('div', { class: 'row' }, `${g.axis === 'x' ? 'Вертикаль x' : 'Горизонталь y'} = ${g.v}`, h('button', { onclick: () => { S.guides.splice(i, 1); renderLayers(); requestDraw(); } }, icon('x'))));
   if (!S.guides.length) gl.append(h('div', { class: 'muted' }, 'Тяните с линейки на холст, чтобы создать направляющую.'));
   else gl.append(h('button', { onclick: () => { S.guides.length = 0; renderLayers(); requestDraw(); } }, 'Удалить все направляющие'));
-  gl.append(h('div', { class: 'muted' }, 'Голубая линия — направляющая: тащите её мышью, ПКМ по ней или перенос на линейку — удалить, клик по ⌗ в углу — удалить все. Фиолетовый пунктир — ось зеркала (кнопки ⇋ X / ⇵ Y): её двигают за фиолетовый маркер на линейке.'));
+  gl.append(h('div', { class: 'muted' }, 'Голубая линия — направляющая: тащите её мышью, ПКМ по ней или перенос на линейку — удалить, клик по значку # в углу линеек — удалить все. Фиолетовый пунктир — ось зеркала (кнопки X / Y в шапке): её двигают за фиолетовый маркер на линейке.'));
   box.append(gl);
 }
 export function refreshLeaks() { if (M()) { S.leaks = leakTiles(M()); requestDraw(); } }
@@ -1049,26 +1071,26 @@ export function renderRandom() {
     h('button', { onclick: () => newSet('tile') }, '+ тайлы'), h('button', { onclick: () => newSet('entity') }, '+ прототипы'), h('button', { onclick: () => newSet('decal') }, '+ декали'),
     h('button', { onclick: addPresets, title: 'Создать готовые наборы из прототипов репозитория' }, 'Встроенные')));
   box.append(h('div', { class: 'row' },
-    h('button', { disabled: !R.sets.length, title: 'Скачать все наборы одним пресетом .json в «Загрузки»', onclick: () => downloadJson(randomToFile('Наборы', R.sets), fileName('random-sets')) }, '⬇ В загрузки'),
-    h('button', { title: 'Добавить наборы из .json файла', onclick: async () => { for (const f of await pickJsonFiles()) addRandomSets(f.data); } }, '⬆ Из файла'),
-    h('button', { disabled: !R.sets.length, title: 'Сохранить все наборы в папку presets/random/ маппера', onclick: () => { const n = prompt('Имя пресета', 'Наборы'); if (n) saveToCatalog('random', n, randomToFile(n, R.sets)); } }, '💾 В каталог'),
-    h('button', { title: 'Пресеты из папки presets/random/ маппера', onclick: randomCatalogDialog }, '📂 Каталог')));
-  box.append(h('p', { class: 'muted' }, 'Ctrl+клик в палитре добавляет элемент в активный набор. Кисть 🎲 (N) рисует набором, в выделении — «Рассыпать». Загруженные пресеты добавляются к текущим наборам.'));
+    h('button', { disabled: !R.sets.length, title: 'Скачать все наборы одним пресетом .json в «Загрузки»', onclick: () => downloadJson(randomToFile('Наборы', R.sets), fileName('random-sets')) }, icon('download'), ' В загрузки'),
+    h('button', { title: 'Добавить наборы из .json файла', onclick: async () => { for (const f of await pickJsonFiles()) addRandomSets(f.data); } }, icon('upload'), ' Из файла'),
+    h('button', { disabled: !R.sets.length, title: 'Сохранить все наборы в папку presets/random/ маппера', onclick: () => { const n = prompt('Имя пресета', 'Наборы'); if (n) saveToCatalog('random', n, randomToFile(n, R.sets)); } }, icon('save'), ' В каталог'),
+    h('button', { title: 'Пресеты из папки presets/random/ маппера', onclick: randomCatalogDialog }, icon('folder'), ' Каталог')));
+  box.append(h('p', { class: 'muted' }, 'Ctrl+клик в палитре добавляет элемент в активный набор. Случайная кисть (N) рисует набором, в выделении — «Рассыпать». Загруженные пресеты добавляются к текущим наборам.'));
   R.sets.forEach((set, i) => {
     const items = h('div', { class: 'items' });
     for (const it of set.items) {
       const img = h('img', { src: set.kind === 'tile' ? A.tileUrl(it.id) : set.kind === 'decal' ? A.decalUrl(it.id) : A.iconUrl(it.id), title: it.id });
       items.append(h('span', { class: 'it' }, img,
         h('input', { type: 'number', min: 0, step: 1, value: it.w, title: 'вес', onchange: e => { it.w = Math.max(0, +e.target.value); savePrefs(); } }),
-        h('button', { style: 'padding:0 3px', onclick: () => { set.items.splice(set.items.indexOf(it), 1); savePrefs(); renderRandom(); } }, '✕')));
+        h('button', { style: 'padding:0 3px', onclick: () => { set.items.splice(set.items.indexOf(it), 1); savePrefs(); renderRandom(); } }, icon('x'))));
     }
     box.append(h('div', { class: 'set' + (i === R.active ? ' on' : '') },
       h('div', { class: 'row' },
         h('input', { type: 'radio', name: 'rset', checked: i === R.active, onchange: () => { R.active = i; renderRandom(); renderToolOptions(); } }),
         h('input', { class: 'grow', value: set.name, onchange: e => { set.name = e.target.value; savePrefs(); } }),
         h('span', { class: 'muted' }, ({ tile: 'тайлы', entity: 'прото', decal: 'декали' })[set.kind]),
-        h('button', { title: 'Скачать этот набор .json в «Загрузки»', onclick: () => downloadJson(randomToFile(set.name, [set]), fileName(set.name)) }, '⬇'),
-        h('button', { class: 'danger', onclick: () => { R.sets.splice(i, 1); R.active = 0; savePrefs(); renderRandom(); } }, '✕')),
+        h('button', { title: 'Скачать этот набор .json в «Загрузки»', onclick: () => downloadJson(randomToFile(set.name, [set]), fileName(set.name)) }, icon('download')),
+        h('button', { class: 'danger', onclick: () => { R.sets.splice(i, 1); R.active = 0; savePrefs(); renderRandom(); } }, icon('x'))),
       h('div', { class: 'row' },
         set.kind !== 'tile' ? chk('случ. поворот', set, 'randRot') : null,
         set.kind !== 'tile' ? chk('смещение', set, 'jitter') : null,
@@ -1124,7 +1146,7 @@ export async function renderPrefabs() {
   for (const p of list) {
     l.append(h('div', { class: 'li' },
       h('span', { onclick: () => startPaste(p.clip) }, `${p.name}`, h('span', { class: 'muted' }, `  ${p.clip.w}×${p.clip.h} · ${p.clip.ents.length} сущн.`)),
-      h('button', { class: 'danger', onclick: async () => { if (confirm('Удалить префаб ' + p.name + '?')) { await api.post('/api/prefab/delete', { name: p.name }); renderPrefabs(); } } }, '✕')));
+      h('button', { class: 'danger', onclick: async () => { if (confirm('Удалить префаб ' + p.name + '?')) { await api.post('/api/prefab/delete', { name: p.name }); renderPrefabs(); } } }, icon('x'))));
   }
   if (!list.length) l.append(h('div', { class: 'li muted' }, 'Нет префабов'));
   box.append(l);
@@ -1144,7 +1166,7 @@ export function renderStats() {
     h('tr', {}, h('td', {}, 'Декалей'), h('td', {}, fmt(s.decals))),
     h('tr', {}, h('td', {}, 'Оценка цены (StaticPrice)'), h('td', {}, fmt(s.price) + ' $')),
     h('tr', {}, h('td', {}, 'Потребление'), h('td', {}, fmt(s.load) + ' Вт')),
-    h('tr', {}, h('td', {}, 'Генерация'), h('td', {}, fmt(s.supply) + ' Вт' + (s.supply < s.load ? ' ⚠ меньше потребления' : ''))),
+    h('tr', {}, h('td', {}, 'Генерация'), h('td', {}, fmt(s.supply) + ' Вт' + (s.supply < s.load ? [' ', icon('warn'), ' меньше потребления'] : ''))),
     ...s.ame.map((g, i) => h('tr', {}, h('td', {}, s.ame.length > 1 ? `ДАМ #${i + 1}` : 'ДАМ'),
       h('td', { title: 'Безопасный впрыск — до 2 ед. на ядро; при большем впрыске ядра теряют стабильность' },
         `ядер: ${g.cores}, до ${fmt(g.safePower)} Вт при впрыске ${g.safeFuel}` +
@@ -1154,8 +1176,19 @@ export function renderStats() {
   box.append(h('div', { class: 'row' }, h('button', { onclick: renderStats }, 'Обновить')));
   box.append(h('h4', {}, 'Прототипы'));
   const l = h('div', { class: 'list' });
+  const lit = S.highlight && S.highlight.size ? M().ents.get([...S.highlight][0])?.proto : null;
   for (const [id, n] of [...s.byProto].sort((a, b) => b[1] - a[1]).slice(0, 80)) {
-    l.append(h('div', { class: 'li', onclick: () => { S.sel.entity = id; setPalKind('entity'); setTool('entity'); } }, h('span', {}, id), h('span', { class: 'muted' }, String(n))));
+    const row = h('div', { class: 'li' + (id === lit ? ' on' : ''), title: 'Выбрать кистью и подсветить все экземпляры на карте', onclick: () => {
+      const again = row.classList.contains('on');
+      S.sel.entity = id; setPalKind('entity'); setTool('entity');
+      for (const r of l.children) r.classList.remove('on');
+      if (!again) {
+        S.highlight = new Set([...M().ents.values()].filter(e => e.proto === id).map(e => e.uid));
+        row.classList.add('on');
+      }
+      requestDraw();
+    } }, h('span', {}, id), h('span', { class: 'muted' }, String(n)));
+    l.append(row);
   }
   box.append(l);
   box.append(h('h4', {}, 'Тайлы'));
@@ -1221,7 +1254,7 @@ export async function openDialog(loadMap) {
   const userList = h('div', { class: 'list', style: 'max-height:22vh' }, h('div', { class: 'li muted' }, 'Загрузка…'));
   const picker = h('input', { type: 'file', accept: '.yml,.yaml', multiple: true, style: 'display:none', onchange: () => { upload([...picker.files]); picker.value = ''; } });
   const drop = h('div', { class: 'dropzone', title: 'Файлы копируются в папку shuttles/ маппера',
-    onclick: () => picker.click() }, '⬆ Перетащите сюда .yml шаттла или ', h('u', {}, 'выберите файлы'), picker);
+    onclick: () => picker.click() }, icon('upload'), ' Перетащите сюда .yml шаттла или ', h('u', {}, 'выберите файлы'), picker);
   const autoOpen = h('input', { type: 'checkbox', checked: S.saveOpts.openUploaded !== false, onchange: e => { S.saveOpts.openUploaded = e.target.checked; savePrefs(); } });
   async function upload(files) {
     drop.classList.add('busy');
@@ -1244,7 +1277,7 @@ export async function openDialog(loadMap) {
             if (!confirm(`Удалить ${m.path.slice(5)} из «Моих шаттлов»?`)) return;
             await api.post('/api/usermap/delete', { path: m.path });
             fillUser();
-          } }, '✕'))));
+          } }, icon('x')))));
     }
     if (!list.length) userList.append(h('div', { class: 'li muted' }, 'Пока пусто: загрузите свой шаттл выше.'));
   }
@@ -1316,7 +1349,7 @@ export function saveDialog(doSave, asNew) {
   const gname = h('input', { class: 'grow', value: (model.doc.gridEnt.components.find(c => c.type === 'MetaData') || {}).name || 'grid' });
   const body = h('div', {},
     h('div', { class: 'row' }, h('span', { title: 'Путь от Resources/ или user/<файл>.yml — папка shuttles/ маппера' }, 'Путь (от Resources/ или user/…):'), path,
-      h('button', { title: 'Сохранять в «Мои шаттлы» (папка shuttles/ маппера)', onclick: () => { path.value = 'user/' + path.value.split('/').pop(); toRepo.checked = true; } }, '→ мои шаттлы')),
+      h('button', { title: 'Сохранять в «Мои шаттлы» (папка shuttles/ маппера)', onclick: () => { path.value = 'user/' + path.value.split('/').pop(); toRepo.checked = true; } }, icon('arrowRight'), ' мои шаттлы')),
     h('div', { class: 'row' }, 'Имя грида (MetaData):', gname),
     h('h4', {}, 'Атмосфера'),
     h('div', { class: 'row' }, h('label', { class: 'chk' }, regen, 'Пересоздать GridAtmosphere (как fixgridatmos)'), mix),
@@ -1423,7 +1456,7 @@ function catalogList(kind, describe, onLoad) {
         h('span', {}, p.data ? (p.data.name || p.file) : p.file, h('span', { class: 'muted' }, '  ' + (p.error ? 'ошибка: ' + p.error : `${p.file}.json · ${describe(p.data)}`))),
         h('span', { class: 'row', style: 'margin:0;flex-wrap:nowrap' },
           h('button', { disabled: !p.data, onclick: () => onLoad(p.data, p.file) }, 'Загрузить'),
-          h('button', { class: 'danger', title: 'Удалить файл из каталога', onclick: async () => { if (confirm(`Удалить presets/${kind}/${p.file}.json?`)) { await api.post('/api/preset/delete', { kind, name: p.file }); fill(); } } }, '✕'))));
+          h('button', { class: 'danger', title: 'Удалить файл из каталога', onclick: async () => { if (confirm(`Удалить presets/${kind}/${p.file}.json?`)) { await api.post('/api/preset/delete', { kind, name: p.file }); fill(); } } }, icon('x')))));
     }
     if (!list.length) box.append(h('div', { class: 'li muted' }, `Каталог presets/${kind}/ пуст`));
   };
@@ -1508,7 +1541,7 @@ function symGroupCard(g, changed, rerender, remove) {
       h('input', { class: 'grow', value: g.name, onchange: e => { g.name = e.target.value; changed(); } }),
       h('span', { class: 'muted' }, KIND_NAMES[g.kind]),
       h('button', { title: 'Заполнить пустые клетки встроенными правилами (NE↔NW, Left↔Right…)', onclick: () => { autoFillGroup(g); changed(); rerender(); } }, 'Авто'),
-      h('button', { class: 'danger', onclick: remove }, '✕')),
+      h('button', { class: 'danger', onclick: remove }, icon('x'))),
     grid);
 }
 
@@ -1546,12 +1579,12 @@ export function mirrorDialog() {
           ...Y.presets.map((p, i) => h('option', { value: i, selected: i === Y.active }, `${p.name} (${p.groups.length})`))),
         h('button', { onclick: () => { Y.presets.push({ name: `Пресет ${Y.presets.length + 1}`, groups: [] }); Y.active = Y.presets.length - 1; changed(); render(); } }, '+ новый'),
         h('button', { disabled: !P0, onclick: () => { Y.presets.push(symFromFile(JSON.parse(JSON.stringify(symToFile({ ...P0, name: P0.name + ' (копия)' }))))); Y.active = Y.presets.length - 1; changed(); render(); } }, 'Копия'),
-        h('button', { class: 'danger', disabled: !P0, title: 'Убрать пресет из браузера (файлы в каталоге не трогаются)', onclick: () => { if (confirm(`Убрать пресет «${P0.name}» из браузера? Файлы в каталоге не трогаются.`)) { Y.presets.splice(Y.active, 1); Y.active = -1; changed(); render(); } } }, '✕')),
+        h('button', { class: 'danger', disabled: !P0, title: 'Убрать пресет из браузера (файлы в каталоге не трогаются)', onclick: () => { if (confirm(`Убрать пресет «${P0.name}» из браузера? Файлы в каталоге не трогаются.`)) { Y.presets.splice(Y.active, 1); Y.active = -1; changed(); render(); } } }, icon('x'))),
       h('div', { class: 'row' },
-        h('button', { disabled: !P0, title: 'Скачать пресет .json в «Загрузки»', onclick: () => downloadJson(symToFile(P0), fileName(P0.name)) }, '⬇ В загрузки'),
-        h('button', { title: 'Загрузить пресет из .json файла', onclick: async () => { for (const f of await pickJsonFiles()) { try { addPreset(symFromFile(f.data, f.name)); } catch (e) { toast(`${f.name}: ${e.message}`, 'err'); } } } }, '⬆ Из файла'),
-        h('button', { disabled: !P0, title: 'Сохранить в папку presets/symmetry/ маппера', onclick: () => saveToCatalog('symmetry', P0.name, symToFile(P0)) }, '💾 В каталог'),
-        h('button', { class: showCatalog ? 'on' : '', title: 'Пресеты из папки presets/symmetry/ маппера', onclick: () => { showCatalog = !showCatalog; render(); } }, '📂 Каталог')),
+        h('button', { disabled: !P0, title: 'Скачать пресет .json в «Загрузки»', onclick: () => downloadJson(symToFile(P0), fileName(P0.name)) }, icon('download'), ' В загрузки'),
+        h('button', { title: 'Загрузить пресет из .json файла', onclick: async () => { for (const f of await pickJsonFiles()) { try { addPreset(symFromFile(f.data, f.name)); } catch (e) { toast(`${f.name}: ${e.message}`, 'err'); } } } }, icon('upload'), ' Из файла'),
+        h('button', { disabled: !P0, title: 'Сохранить в папку presets/symmetry/ маппера', onclick: () => saveToCatalog('symmetry', P0.name, symToFile(P0)) }, icon('save'), ' В каталог'),
+        h('button', { class: showCatalog ? 'on' : '', title: 'Пресеты из папки presets/symmetry/ маппера', onclick: () => { showCatalog = !showCatalog; render(); } }, icon('folder'), ' Каталог')),
       showCatalog ? catalogList('symmetry', d => `${((d && d.groups) || []).length} групп`, (d, file) => { try { addPreset(symFromFile(d, file)); toast('Пресет загружен', 'ok'); } catch (e) { toast(e.message, 'err'); } }) : '');
     if (P0) {
       const add = g => { P0.groups.push(g); changed(); render(); };
@@ -1609,7 +1642,7 @@ function radarControls(model, redraw, { onSave, onPin, compact = false } = {}) {
     h('div', { class: 'row' }, chk('сигнатуры', o, 'blips', redraw), chk('доки', o, 'docks', redraw), chk('названия доков', o, 'labels', redraw),
       chk('азимуты', o, 'azimuth', redraw), chk('кольца дальности', o, 'rings', redraw),
       h('span', { style: 'margin-left:auto' }),
-      onPin ? h('button', { title: 'Закрепить сканер мини-окном поверх редактора: перетаскивается, обновляется вживую', onclick: onPin }, '📌 Закрепить') : null,
+      onPin ? h('button', { title: 'Закрепить сканер мини-окном поверх редактора: перетаскивается, обновляется вживую', onclick: onPin }, icon('pin'), ' Закрепить') : null,
       onSave ? h('button', { onclick: onSave }, 'Сохранить PNG') : null));
   return { el, sync: r => { rangeInp.placeholder = `авто ${r.range}`; } };
 }
@@ -1667,11 +1700,11 @@ export const radarDock = (() => {
     const stage = $('stage');
     panel = h('div', { id: 'radarDock', class: 'float-panel' });
     const head = h('div', { class: 'fp-head', title: 'Перетащите, чтобы переместить' },
-      h('span', { class: 'fp-title' }, '◎ Сканер масс'),
+      h('span', { class: 'fp-title' }, icon('radar'), ' Сканер масс'),
       h('span', { style: 'margin-left:auto' }),
-      h('button', { title: 'Настройки сканера', onclick: () => { D().expanded = !D().expanded; layout(); savePrefs(); } }, '⚙'),
-      h('button', { title: 'Открыть большой сканер', onclick: () => radarDialog() }, '⤢'),
-      h('button', { title: 'Открепить (закрыть мини-окно)', onclick: close }, '✕'));
+      h('button', { title: 'Настройки сканера', onclick: () => { D().expanded = !D().expanded; layout(); savePrefs(); } }, icon('settings')),
+      h('button', { title: 'Открыть большой сканер', onclick: () => radarDialog() }, icon('expand')),
+      h('button', { title: 'Открепить (закрыть мини-окно)', onclick: close }, icon('x')));
     cv = h('canvas', { title: 'Клик — показать это место в редакторе, колесо — масштаб сканера' });
     base = document.createElement('canvas');
     body = h('div', { class: 'fp-body' }, cv);
@@ -1905,7 +1938,7 @@ export function priceCalculator(price, onChange) {
   const roundSel = h('select', { onchange: e => { calc.round = +e.target.value; upd(); } },
     ...[[1, 'без округления'], [10, 'до 10'], [100, 'до 100'], [500, 'до 500'], [1000, 'до 1000']].map(([v, n]) => h('option', { value: v, selected: v === calc.round }, n)));
   const el = h('div', {},
-    h('div', { class: 'row' }, 'Оценка (StaticPrice)', baseIn, h('button', { title: 'Пересчитать по карте', onclick: () => { calc.base = Math.round(stats(M()).price); baseIn.value = calc.base; upd(); } }, '↻'), 'округление', roundSel),
+    h('div', { class: 'row' }, 'Оценка (StaticPrice)', baseIn, h('button', { title: 'Пересчитать по карте', onclick: () => { calc.base = Math.round(stats(M()).price); baseIn.value = calc.base; upd(); } }, icon('rotateCw')), 'округление', roundSel),
     h('div', { class: 'row' }, 'Наценка', slider, pctSel, pctLabel),
     h('div', { class: 'row' }, 'Цена', priceIn, h('label', { class: 'chk' }, manualChk, 'вручную'), warn),
     h('p', { class: 'muted', style: 'font-size:11px' }, 'Оценка — сумма StaticPrice сущностей; реальную стоимость в игре считает аппрейзер (материалы, содержимое и т.п.). Наценка выбирается с шагом 5%.'));
@@ -1965,6 +1998,7 @@ export function helpDialog() {
     ['Колесо, средняя кнопка, Пробел+тянуть', 'масштаб / перемещение вида'],
     ['M W V B E D G X I', 'выделение, палочка, инспектор, тайлы, прототипы, декали, заливка, ластик, пипетка'],
     ['C P U N L H', 'кабели, трубы, утилизация, случайная кисть, линейка, рука'],
+    ['O', 'фигуры: прямоугольник, эллипс, линия (Shift — квадрат / круг / 45°, Ctrl — от центра, ПКМ — стереть)'],
     ['1 / 2 / 3 / 4', 'режимы: обычный / проводка / атмос / утилизация'],
     ['R / Shift+R, T', 'утилизация: над развилкой — сменить выход / тип (развилка, маршрутизатор, сигнальный; прямая ↔ сортировщик)'],
     ['Shift+клик в палитре', 'добавить элемент в активную свою палитру / убрать из неё'],
